@@ -56,6 +56,20 @@ def render_entry(entry: SNPEntry) -> None:
             st.markdown(format_content_for_markdown(body))
 
 
+def render_live_matches_summary(matches: list[MatchResult]) -> None:
+    st.markdown("#### Последние найденные совпадения")
+    if not matches:
+        st.caption("Совпадения пока не найдены.")
+        return
+
+    for match in matches[-5:][::-1]:
+        icon = "🟢" if match.classification == "good" else "🔴" if match.classification == "bad" else "⚪"
+        st.markdown(
+            f"{icon} **{match.rsid}** — {match.user_genotype_plus} ({match.orientation}), "
+            f"класс: `{match.classification}`, RiskAllele: `{match.risk_allele or '—'}`, Trait: `{match.trait or '—'}`"
+        )
+
+
 def render_matches(matches: list[MatchResult]) -> None:
     st.markdown("## Совпадения из файла 23andMe")
     for match in matches:
@@ -75,6 +89,8 @@ def render_matches(matches: list[MatchResult]) -> None:
             with risk_col:
                 st.write(
                     {
+                        "Title": match.title_interpretation or "—",
+                        "Trait": match.trait or "—",
                         "RiskAllele": match.risk_allele or "—",
                         "плохая_гомозигота": "ДА" if match.is_bad_homozygous else "нет",
                     }
@@ -86,6 +102,10 @@ def render_matches(matches: list[MatchResult]) -> None:
             if match.title_interpretation:
                 st.markdown("### Интерпретация из поля Title")
                 st.markdown(format_content_for_markdown(match.title_interpretation))
+
+            if match.trait:
+                st.markdown("### Trait")
+                st.markdown(format_content_for_markdown(match.trait))
 
             st.markdown("### Интерпретация")
             st.markdown(format_content_for_markdown(match.interpretation))
@@ -134,26 +154,32 @@ def main() -> None:
 
     db_path = ensure_sqlite_file(uploaded_file)
 
-    st.markdown("---")
-    st.markdown("## Поиск одного SNP")
-    rsid = st.text_input("Введите SNP (пример: rs7412)", placeholder="rs7412")
-    suggestions = list_similar_rsids(db_path, rsid, limit=15) if rsid else []
+    if "mass_analysis_started" not in st.session_state:
+        st.session_state.mass_analysis_started = False
 
-    if suggestions:
-        st.caption("Похожие SNP в базе:")
-        st.write(", ".join(suggestions))
+    single_search_container = st.container()
+    if not st.session_state.mass_analysis_started:
+        with single_search_container:
+            st.markdown("---")
+            st.markdown("## Поиск одного SNP")
+            rsid = st.text_input("Введите SNP (пример: rs7412)", placeholder="rs7412")
+            suggestions = list_similar_rsids(db_path, rsid, limit=15) if rsid else []
 
-    if rsid:
-        try:
-            entry = fetch_snp_entry(db_path, rsid)
-        except Exception as exc:  # noqa: BLE001
-            st.error(f"Ошибка чтения базы данных: {exc}")
-            return
+            if suggestions:
+                st.caption("Похожие SNP в базе:")
+                st.write(", ".join(suggestions))
 
-        if entry is None:
-            st.warning("SNP не найден. Уточните rsid или выберите из подсказок выше.")
-        else:
-            render_entry(entry)
+            if rsid:
+                try:
+                    entry = fetch_snp_entry(db_path, rsid)
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"Ошибка чтения базы данных: {exc}")
+                    return
+
+                if entry is None:
+                    st.warning("SNP не найден. Уточните rsid или выберите из подсказок выше.")
+                else:
+                    render_entry(entry)
 
     st.markdown("---")
     st.markdown("## Массовое сопоставление с файлом 23andMe V5")
@@ -174,22 +200,46 @@ def main() -> None:
     progress_path = progress_dir / f"match_progress_{progress_id}.json"
 
     if st.button("Запустить/продолжить поиск совпадений", type="primary"):
+        st.session_state.mass_analysis_started = True
+        single_search_container.empty()
+
+        progress_bar = st.progress(0.0, text="Подготовка к сканированию...")
+        metrics_placeholder = st.empty()
+        live_matches_placeholder = st.empty()
+
+        last_render = {"checked": 0, "found": -1}
+
+        def render_progress(checked: int, total: int, matches: list[MatchResult], stats: dict[str, int]) -> None:
+            if checked < total and checked - last_render["checked"] < 5 and stats["found"] == last_render["found"]:
+                return
+
+            completion = checked / total if total else 0.0
+            progress_bar.progress(completion, text=f"Обработано SNP: {checked}/{total} ({completion * 100:.1f}%)")
+
+            with metrics_placeholder.container():
+                stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+                stat_col1.metric("Проверено", f"{checked}/{total}")
+                stat_col2.metric("% выполнения", f"{completion * 100:.1f}%")
+                stat_col3.metric("Найдено совпадений", stats["found"])
+                stat_col4.metric("Хорошие / Плохие", f"{stats['good']} / {stats['bad']}")
+
+            with live_matches_placeholder.container():
+                render_live_matches_summary(matches)
+
+            last_render["checked"] = checked
+            last_render["found"] = stats["found"]
+
         with st.spinner("Идет поиск совпадений..."):
             matches, total_checked, stats = scan_snps_with_progress(
                 db_path=db_path,
                 snps=user_snps,
                 progress_path=progress_path,
                 save_interval=10,
+                progress_callback=render_progress,
             )
 
-        completion = 100.0 * (total_checked / len(user_snps)) if user_snps else 0.0
+        render_progress(total_checked, len(user_snps), matches, stats)
         st.success("Сканирование завершено или продолжено с сохраненной точки.")
-
-        stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
-        stat_col1.metric("Проверено", f"{total_checked}/{len(user_snps)}")
-        stat_col2.metric("% выполнения", f"{completion:.1f}%")
-        stat_col3.metric("Найдено совпадений", stats["found"])
-        stat_col4.metric("Хорошие / Плохие", f"{stats['good']} / {stats['bad']}")
 
         report = build_match_report(matches)
         st.download_button(
