@@ -84,11 +84,23 @@ def main() -> None:
         "(таблица snps: rsid, content, scraped_at, attribution)."
     )
 
-    uploaded_file = st.file_uploader(
-        "Локальный файл дампа (.sqlite/.db)",
-        type=["sqlite", "db", "sqlite3"],
-        accept_multiple_files=False,
-    )
+    st.markdown("## Загрузка файлов")
+    db_col, snp_col = st.columns(2)
+
+    with db_col:
+        uploaded_file = st.file_uploader(
+            "📁 Загрузить БД (.sqlite/.db)",
+            type=["sqlite", "db", "sqlite3"],
+            accept_multiple_files=False,
+        )
+
+    with snp_col:
+        snp_file = st.file_uploader(
+            "📄 Загрузить файл 23andMe (.txt)",
+            type=["txt"],
+            accept_multiple_files=False,
+            key="snp-file",
+        )
 
     if uploaded_file is None:
         st.info("Сначала загрузите файл дампа базы данных.")
@@ -119,14 +131,9 @@ def main() -> None:
 
     st.markdown("---")
     st.markdown("## Массовое сопоставление с файлом 23andMe V5")
-    snp_file = st.file_uploader(
-        "Файл SNP (23andMe V5, txt)",
-        type=["txt"],
-        accept_multiple_files=False,
-        key="snp-file",
-    )
 
     if snp_file is None:
+        st.info("Чтобы запустить массовое сопоставление, загрузите файл 23andMe в блоке выше.")
         return
 
     snp_content = snp_file.getvalue().decode("utf-8", errors="ignore")
