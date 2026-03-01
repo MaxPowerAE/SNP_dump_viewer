@@ -7,7 +7,7 @@ import sqlite3
 from urllib import parse, request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 
 @dataclass
@@ -33,6 +33,7 @@ class MatchResult:
     classification: str
     interpretation: str
     title_interpretation: str
+    trait: str
     risk_allele: str | None
     is_bad_homozygous: bool
     pubmed_articles: list[tuple[str, str]]
@@ -305,6 +306,18 @@ def extract_risk_allele(content: str) -> str | None:
     return allele or None
 
 
+def extract_trait(content: str) -> str:
+    pattern = re.compile(r"(?:^|\n)\s*\|?\s*trait\s*=\s*([^|\n\r]+)", flags=re.IGNORECASE)
+    match = pattern.search(content)
+    if not match:
+        return ""
+
+    trait = match.group(1).strip()
+    if trait.lower() == "none":
+        return ""
+    return trait
+
+
 def is_bad_homozygous_genotype(genotype: str, risk_allele: str | None) -> bool:
     if not risk_allele or len(genotype) != 2:
         return False
@@ -316,11 +329,14 @@ def is_bad_homozygous_genotype(genotype: str, risk_allele: str | None) -> bool:
 def build_interpretation_context(
     interpretation: str,
     title_interpretation: str,
+    trait: str,
     risk_allele: str | None,
 ) -> str:
     notes: list[str] = []
     if title_interpretation:
         notes.append(f"Title: {title_interpretation}")
+    if trait:
+        notes.append(f"Trait: {trait}")
     if risk_allele:
         notes.append(f"RiskAllele: {risk_allele}")
 
@@ -397,6 +413,7 @@ def scan_snps_with_progress(
     snps: list[UserSNP],
     progress_path: Path,
     save_interval: int = 10,
+    progress_callback: Callable[[int, int, list[MatchResult], dict[str, int]], None] | None = None,
 ) -> tuple[list[MatchResult], int, dict[str, int]]:
     progress = load_progress(progress_path)
     start_index = int(progress.get("next_index", 0))
@@ -418,6 +435,8 @@ def scan_snps_with_progress(
         entry = fetch_snp_entry(db_path, user_snp.rsid)
         if entry is None:
             checked_since_save += 1
+            if progress_callback:
+                progress_callback(idx + 1, len(snps), matches, stats)
             if checked_since_save >= save_interval:
                 save_progress(progress_path, idx + 1, matches, stats)
                 checked_since_save = 0
@@ -427,9 +446,10 @@ def scan_snps_with_progress(
         dump_genotype = convert_genotype_for_orientation(user_snp.genotype_plus, orientation)
         interpretation = extract_genotype_interpretation(entry.content, dump_genotype)
         title_interpretation = extract_title_interpretation(entry.content)
+        trait = extract_trait(entry.content)
         risk_allele = extract_risk_allele(entry.content)
         is_bad_homozygous = is_bad_homozygous_genotype(dump_genotype, risk_allele)
-        interpretation = build_interpretation_context(interpretation, title_interpretation, risk_allele)
+        interpretation = build_interpretation_context(interpretation, title_interpretation, trait, risk_allele)
         classification = classify_interpretation(interpretation)
 
         match = MatchResult(
@@ -440,6 +460,7 @@ def scan_snps_with_progress(
             classification=classification,
             interpretation=interpretation,
             title_interpretation=title_interpretation,
+            trait=trait,
             risk_allele=risk_allele,
             is_bad_homozygous=is_bad_homozygous,
             pubmed_articles=fetch_pubmed_links_for_snp(entry.rsid),
@@ -453,6 +474,8 @@ def scan_snps_with_progress(
             stats["bad"] += 1
 
         checked_since_save += 1
+        if progress_callback:
+            progress_callback(idx + 1, len(snps), matches, stats)
         if checked_since_save >= save_interval:
             save_progress(progress_path, idx + 1, matches, stats)
             checked_since_save = 0
@@ -476,6 +499,7 @@ def build_match_report(matches: list[MatchResult]) -> str:
                 f"   - Генотип для дампа ({match.orientation}): {match.user_genotype_for_dump}",
                 f"   - Классификация: {match.classification}",
                 f"   - Заголовок/Title: {match.title_interpretation or '—'}",
+                f"   - Trait: {match.trait or '—'}",
                 f"   - RiskAllele: {match.risk_allele or '—'}",
                 f"   - Плохая гомозигота: {'ДА' if match.is_bad_homozygous else 'нет'}",
                 "   - Интерпретация:",
@@ -533,6 +557,7 @@ def _serialize_match(match: MatchResult) -> dict:
         "classification": match.classification,
         "interpretation": match.interpretation,
         "title_interpretation": match.title_interpretation,
+        "trait": match.trait,
         "risk_allele": match.risk_allele,
         "is_bad_homozygous": match.is_bad_homozygous,
         "pubmed_articles": match.pubmed_articles,
@@ -561,6 +586,7 @@ def _deserialize_match(payload: dict) -> MatchResult:
         classification=payload.get("classification", "neutral"),
         interpretation=payload.get("interpretation", ""),
         title_interpretation=payload.get("title_interpretation", ""),
+        trait=payload.get("trait", ""),
         risk_allele=payload.get("risk_allele"),
         is_bad_homozygous=bool(payload.get("is_bad_homozygous", False)),
         pubmed_articles=[tuple(item) for item in payload.get("pubmed_articles", [])],

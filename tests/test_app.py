@@ -5,6 +5,7 @@ from core import (
     build_match_report,
     classify_interpretation,
     extract_risk_allele,
+    extract_trait,
     extract_title_interpretation,
     fetch_pubmed_links_for_snp,
     is_bad_homozygous_genotype,
@@ -120,16 +121,28 @@ def test_extract_title_and_risk_allele_without_pipe() -> None:
     assert extract_risk_allele(content) == "A"
 
 
+
+
+def test_extract_trait() -> None:
+    content = "|Trait=Cardiovascular disease\n|RiskAllele=G"
+    assert extract_trait(content) == "Cardiovascular disease"
+
+
+def test_extract_trait_none() -> None:
+    content = "|Trait=None"
+    assert extract_trait(content) == ""
+
 def test_build_interpretation_context_for_generic_interpretation() -> None:
     interpretation = "Специфичная интерпретация для генотипа не найдена. Показано общее описание SNP."
-    result = build_interpretation_context(interpretation, "Higher risk for disease", "G")
-    assert result == "Title: Higher risk for disease\nRiskAllele: G"
+    result = build_interpretation_context(interpretation, "Higher risk for disease", "Obesity", "G")
+    assert result == "Title: Higher risk for disease\nTrait: Obesity\nRiskAllele: G"
 
 
 def test_build_interpretation_context_appends_metadata() -> None:
-    result = build_interpretation_context("Protective association found.", "Main interpretation", "G")
+    result = build_interpretation_context("Protective association found.", "Main interpretation", "Longevity", "G")
     assert "Protective association found." in result
     assert "Title: Main interpretation" in result
+    assert "Trait: Longevity" in result
     assert "RiskAllele: G" in result
 
 
