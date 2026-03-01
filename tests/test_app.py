@@ -45,6 +45,26 @@ def test_format_content_for_markdown_with_population_template() -> None:
     assert "- HapMapRevision: 28" in formatted
 
 
+def test_format_content_for_markdown_with_english_population_template() -> None:
+    text = (
+        "{{ population diversity "
+        "| geno1=(A;A) | geno2=(A;G) | geno3=(G;G) "
+        "| CEU | 61.1 | 37.2 | 1.8 "
+        "| HapMapRevision=28 }}"
+    )
+    formatted = format_content_for_markdown(text)
+    assert "### population diversity" in formatted
+    assert "| Популяция | (A;A) | (A;G) | (G;G) |" in formatted
+    assert "| CEU | 61.1 | 37.2 | 1.8 |" in formatted
+
+
+def test_format_content_for_markdown_with_adjacent_templates() -> None:
+    text = "{{Rsnum |rsid=9804128}}{{ population diversity | CEU | 1 | 2 | 3 }}"
+    formatted = format_content_for_markdown(text)
+    assert "### Rsnum" in formatted
+    assert "### population diversity" in formatted
+
+
 def test_format_content_for_markdown_with_on_chip_template() -> None:
     text = "{{on chip | 23andMe v1}}"
     formatted = format_content_for_markdown(text)

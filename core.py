@@ -108,7 +108,7 @@ def _render_template(template: str) -> str:
             positional.append(token)
 
     lower_name = name.lower()
-    if lower_name == "разнообразие популяции":
+    if lower_name in {"разнообразие популяции", "population diversity"}:
         return _render_population_template(name, key_values, positional)
     if lower_name == "on chip":
         values = ", ".join(positional)
