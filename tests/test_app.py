@@ -236,7 +236,7 @@ def test_match_warning_marker_red_for_bad_two_alleles() -> None:
         trait="trait",
         risk_allele="A",
         is_bad_homozygous=False,
-        pubmed_articles=[],
+        pubmed_articles=[("Study title", "https://pubmed.ncbi.nlm.nih.gov/123/")],
         entry=SNPEntry(rsid="rs1", content="", scraped_at=None, attribution=None),
     )
     assert match_warning_marker(match) == "🔴 !!!"
@@ -272,7 +272,7 @@ def test_format_live_match_summary_contains_requested_fields() -> None:
         trait="Some trait",
         risk_allele="A",
         is_bad_homozygous=False,
-        pubmed_articles=[],
+        pubmed_articles=[("Study title", "https://pubmed.ncbi.nlm.nih.gov/123/")],
         entry=SNPEntry(rsid="rs3", content="", scraped_at=None, attribution=None),
     )
 
@@ -284,8 +284,9 @@ def test_format_live_match_summary_contains_requested_fields() -> None:
     assert "neutral" in summary
     assert "A" in summary
     assert "Some trait" in summary
-    assert "Some interpretation" in summary
+    assert "Some interpretation" not in summary
     assert "Some title" in summary
+    assert "https://pubmed.ncbi.nlm.nih.gov/123/" in summary
 
 
 def test_scan_snps_with_progress_counts_bad_only_on_risk_allele_match(tmp_path: Path) -> None:

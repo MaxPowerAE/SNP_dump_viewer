@@ -58,13 +58,27 @@ def render_entry(entry: SNPEntry) -> None:
 
 
 def render_live_matches_summary(matches: list[MatchResult]) -> None:
-    st.markdown("#### Последние найденные совпадения")
+    st.markdown("#### Последние 5 найденных совпадений")
     if not matches:
         st.caption("Совпадения пока не найдены.")
         return
 
     for match in matches[-5:][::-1]:
         st.markdown(format_live_match_summary(match))
+        st.divider()
+
+
+def render_flagged_matches(matches: list[MatchResult]) -> None:
+    st.markdown("#### Бесконечный список совпадений с пометкой !!!")
+
+    flagged_matches = [match for match in matches if match_warning_marker(match) == "🔴 !!!"]
+    if not flagged_matches:
+        st.caption("Совпадения с пометкой !!! пока не найдены.")
+        return
+
+    for match in flagged_matches[::-1]:
+        st.markdown(format_live_match_summary(match))
+        st.divider()
 
 
 def match_warning_marker(match: MatchResult) -> str:
@@ -81,11 +95,14 @@ def format_live_match_summary(match: MatchResult) -> str:
     icon = "🟢" if match.classification == "good" else "🔴" if match.classification == "bad" else "⚪"
     warning = match_warning_marker(match)
     warning_part = f" {warning}" if warning else ""
+    pubmed_links = (
+        ", ".join(f"[{title}]({url})" for title, url in match.pubmed_articles) if match.pubmed_articles else "—"
+    )
     return (
-        f"{icon}{warning_part} **{match.rsid}** — "
-        f"plus: `{match.user_genotype_plus}`, dump: `{match.user_genotype_for_dump}` ({match.orientation}), "
-        f"класс: `{match.classification}`, RiskAllele: `{match.risk_allele or '—'}`, Trait: `{match.trait or '—'}`, "
-        f"Interpretation: `{match.interpretation or '—'}`, Title: `{match.title_interpretation or '—'}`"
+        f"{icon}{warning_part} **{match.rsid}** — plus: `{match.user_genotype_plus}`, "
+        f"dump: `{match.user_genotype_for_dump}` ({match.orientation}), "
+        f"класс: `{match.classification}`, RiskAllele: `{match.risk_allele or '—'}`, Trait: `{match.trait or '—'}`  \n"
+        f"Title: `{match.title_interpretation or '—'}` | PubMed: {pubmed_links}"
     )
 
 
@@ -125,9 +142,6 @@ def render_matches(matches: list[MatchResult]) -> None:
             if match.trait:
                 st.markdown("### Trait")
                 st.markdown(format_content_for_markdown(match.trait))
-
-            st.markdown("### Интерпретация")
-            st.markdown(format_content_for_markdown(match.interpretation))
 
             st.markdown("### PubMed")
             if match.pubmed_articles:
@@ -225,10 +239,7 @@ def main() -> None:
         progress_bar = st.progress(0.0, text="Подготовка к сканированию...")
         metrics_placeholder = st.empty()
         live_matches_placeholder = st.empty()
-        flagged_matches_placeholder = st.empty()
-
         last_render = {"checked": 0, "found": -1}
-        rendered_flagged_match_ids: set[tuple[str, str, str]] = set()
 
         def render_progress(checked: int, total: int, matches: list[MatchResult], stats: dict[str, int]) -> None:
             if checked < total and checked - last_render["checked"] < 5 and stats["found"] == last_render["found"]:
@@ -245,24 +256,12 @@ def main() -> None:
                 stat_col4.metric("Хорошие / Плохие", f"{stats['good']} / {stats['bad']}")
 
             with live_matches_placeholder.container():
-                st.markdown("#### Последние 5 найденных совпадений")
-                render_live_matches_summary(matches)
-
-            with flagged_matches_placeholder.container():
-                st.markdown("#### Совпадения с пометкой !!!")
-                has_flagged = False
-                for match in matches:
-                    if match_warning_marker(match) != "🔴 !!!":
-                        continue
-                    has_flagged = True
-                    match_id = (match.rsid, match.user_genotype_plus, match.user_genotype_for_dump)
-                    if match_id in rendered_flagged_match_ids:
-                        continue
-                    rendered_flagged_match_ids.add(match_id)
-                    st.markdown(format_live_match_summary(match))
-
-                if not has_flagged:
-                    st.caption("Совпадения с пометкой !!! пока не найдены.")
+                st.markdown("### Лента совпадений")
+                recent_col, flagged_col = st.columns(2)
+                with recent_col:
+                    render_live_matches_summary(matches)
+                with flagged_col:
+                    render_flagged_matches(matches)
 
             last_render["checked"] = checked
             last_render["found"] = stats["found"]
