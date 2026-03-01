@@ -13,6 +13,7 @@ from core import (
     detect_dump_orientation,
     extract_wikilinks,
     format_content_for_markdown,
+    has_risk_allele_match,
     parse_23andme_file,
     scan_snps_with_progress,
     split_wiki_sections,
@@ -148,6 +149,13 @@ def test_build_interpretation_context_appends_metadata() -> None:
     assert "RiskAllele: G" in result
 
 
+
+
+def test_has_risk_allele_match() -> None:
+    assert has_risk_allele_match("AG", "G")
+    assert not has_risk_allele_match("CT", "A")
+    assert not has_risk_allele_match("CT", None)
+
 def test_bad_homozygous_detection() -> None:
     assert is_bad_homozygous_genotype("GG", "G")
     assert not is_bad_homozygous_genotype("AG", "G")
@@ -278,3 +286,33 @@ def test_format_live_match_summary_contains_requested_fields() -> None:
     assert "Some trait" in summary
     assert "Some interpretation" in summary
     assert "Some title" in summary
+
+
+def test_scan_snps_with_progress_counts_bad_only_on_risk_allele_match(tmp_path: Path) -> None:
+    db_path = tmp_path / "test_bad.db"
+    progress_path = tmp_path / "progress_bad.json"
+
+    import sqlite3
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "CREATE TABLE snps (rsid TEXT, content TEXT, scraped_at TEXT, attribution TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO snps (rsid, content, scraped_at, attribution) VALUES (?, ?, ?, ?)",
+            (
+                "rsbad",
+                "|Title=Higher risk for condition\n|RiskAllele=T\n==AA==\nHigher risk for condition",
+                "2026-01-01",
+                "test",
+            ),
+        )
+        connection.commit()
+
+    snps = parse_23andme_file("rsbad\t1\t1\tAA")
+
+    _, _, stats = scan_snps_with_progress(db_path, snps, progress_path, save_interval=1)
+
+    assert stats["found"] == 1
+    assert stats["bad"] == 0
+
