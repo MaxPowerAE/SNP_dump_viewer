@@ -17,6 +17,8 @@ from core import (
     scan_snps_with_progress,
     split_wiki_sections,
 )
+from app import format_live_match_summary, match_warning_marker
+from core import MatchResult, SNPEntry
 
 
 def test_split_wiki_sections_with_headings() -> None:
@@ -212,3 +214,67 @@ def test_scan_snps_with_progress(tmp_path: Path) -> None:
     report = build_match_report(matches)
     assert "rs7412" in report
     assert "Protective association found." in report
+
+
+def test_match_warning_marker_red_for_bad_two_alleles() -> None:
+    match = MatchResult(
+        rsid="rs1",
+        user_genotype_plus="AG",
+        user_genotype_for_dump="AG",
+        orientation="plus",
+        classification="bad",
+        interpretation="risk",
+        title_interpretation="title",
+        trait="trait",
+        risk_allele="A",
+        is_bad_homozygous=False,
+        pubmed_articles=[],
+        entry=SNPEntry(rsid="rs1", content="", scraped_at=None, attribution=None),
+    )
+    assert match_warning_marker(match) == "🔴 !!!"
+
+
+def test_match_warning_marker_yellow_for_risk_allele_presence() -> None:
+    match = MatchResult(
+        rsid="rs2",
+        user_genotype_plus="AG",
+        user_genotype_for_dump="AG",
+        orientation="plus",
+        classification="neutral",
+        interpretation="text",
+        title_interpretation="title",
+        trait="trait",
+        risk_allele="G",
+        is_bad_homozygous=False,
+        pubmed_articles=[],
+        entry=SNPEntry(rsid="rs2", content="", scraped_at=None, attribution=None),
+    )
+    assert match_warning_marker(match) == "🟡 !"
+
+
+def test_format_live_match_summary_contains_requested_fields() -> None:
+    match = MatchResult(
+        rsid="rs3",
+        user_genotype_plus="CT",
+        user_genotype_for_dump="GA",
+        orientation="minus",
+        classification="neutral",
+        interpretation="Some interpretation",
+        title_interpretation="Some title",
+        trait="Some trait",
+        risk_allele="A",
+        is_bad_homozygous=False,
+        pubmed_articles=[],
+        entry=SNPEntry(rsid="rs3", content="", scraped_at=None, attribution=None),
+    )
+
+    summary = format_live_match_summary(match)
+    assert "rs3" in summary
+    assert "CT" in summary
+    assert "GA" in summary
+    assert "minus" in summary
+    assert "neutral" in summary
+    assert "A" in summary
+    assert "Some trait" in summary
+    assert "Some interpretation" in summary
+    assert "Some title" in summary
