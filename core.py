@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from urllib import parse, request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -31,6 +32,10 @@ class MatchResult:
     orientation: str
     classification: str
     interpretation: str
+    title_interpretation: str
+    risk_allele: str | None
+    is_bad_homozygous: bool
+    pubmed_articles: list[tuple[str, str]]
     entry: SNPEntry
 
 
@@ -270,6 +275,85 @@ def extract_genotype_interpretation(content: str, genotype: str) -> str:
     return "Специфичная интерпретация для генотипа не найдена. Показано общее описание SNP."
 
 
+def extract_title_interpretation(content: str) -> str:
+    section_pattern = re.compile(
+        r"^==\s*title\s*==\s*$([\s\S]*?)(?=^==\s*.+?\s*==\s*$|\Z)",
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    section_match = section_pattern.search(content)
+    if section_match:
+        return section_match.group(1).strip()
+
+    kv_pattern = re.compile(r"\|\s*title\s*=\s*(.+)", flags=re.IGNORECASE)
+    kv_match = kv_pattern.search(content)
+    if kv_match:
+        return kv_match.group(1).strip()
+
+    return ""
+
+
+def extract_risk_allele(content: str) -> str | None:
+    pattern = re.compile(r"\|\s*riskallele\s*=\s*([^|\n\r]+)", flags=re.IGNORECASE)
+    match = pattern.search(content)
+    if not match:
+        return None
+    allele = re.sub(r"[^ACGT-]", "", match.group(1).upper())
+    return allele or None
+
+
+def is_bad_homozygous_genotype(genotype: str, risk_allele: str | None) -> bool:
+    if not risk_allele or len(genotype) != 2:
+        return False
+    if genotype[0] != genotype[1]:
+        return False
+    return genotype[0] in set(risk_allele)
+
+
+def fetch_pubmed_links_for_snp(rsid: str, max_results: int = 3, timeout_s: int = 8) -> list[tuple[str, str]]:
+    query = parse.urlencode(
+        {
+            "db": "pubmed",
+            "term": f"{rsid}[Title/Abstract]",
+            "retmax": str(max_results),
+            "retmode": "json",
+        }
+    )
+    search_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?{query}"
+    try:
+        with request.urlopen(search_url, timeout=timeout_s) as response:  # noqa: S310
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:  # noqa: BLE001
+        return []
+
+    ids = payload.get("esearchresult", {}).get("idlist", [])
+    if not ids:
+        return []
+
+    summary_query = parse.urlencode(
+        {
+            "db": "pubmed",
+            "id": ",".join(ids),
+            "retmode": "json",
+        }
+    )
+    summary_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?{summary_query}"
+    try:
+        with request.urlopen(summary_url, timeout=timeout_s) as response:  # noqa: S310
+            summary_payload = json.loads(response.read().decode("utf-8"))
+    except Exception:  # noqa: BLE001
+        return []
+
+    result: list[tuple[str, str]] = []
+    summary_data = summary_payload.get("result", {})
+    for article_id in ids:
+        item = summary_data.get(article_id)
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title", "")).strip() or f"PubMed {article_id}"
+        result.append((title, f"https://pubmed.ncbi.nlm.nih.gov/{article_id}/"))
+    return result
+
+
 def classify_interpretation(text: str) -> str:
     lowered = text.lower()
     bad_markers = ["risk", "harm", "pathogenic", "bad", "опас", "риск", "вред"]
@@ -319,6 +403,9 @@ def scan_snps_with_progress(
         orientation = detect_dump_orientation(entry.content)
         dump_genotype = convert_genotype_for_orientation(user_snp.genotype_plus, orientation)
         interpretation = extract_genotype_interpretation(entry.content, dump_genotype)
+        title_interpretation = extract_title_interpretation(entry.content)
+        risk_allele = extract_risk_allele(entry.content)
+        is_bad_homozygous = is_bad_homozygous_genotype(dump_genotype, risk_allele)
         classification = classify_interpretation(interpretation)
 
         match = MatchResult(
@@ -328,6 +415,10 @@ def scan_snps_with_progress(
             orientation=orientation,
             classification=classification,
             interpretation=interpretation,
+            title_interpretation=title_interpretation,
+            risk_allele=risk_allele,
+            is_bad_homozygous=is_bad_homozygous,
+            pubmed_articles=fetch_pubmed_links_for_snp(entry.rsid),
             entry=entry,
         )
         matches.append(match)
@@ -360,12 +451,23 @@ def build_match_report(matches: list[MatchResult]) -> str:
                 f"   - Генотип (23andMe +): {match.user_genotype_plus}",
                 f"   - Генотип для дампа ({match.orientation}): {match.user_genotype_for_dump}",
                 f"   - Классификация: {match.classification}",
+                f"   - Заголовок/Title: {match.title_interpretation or '—'}",
+                f"   - RiskAllele: {match.risk_allele or '—'}",
+                f"   - Плохая гомозигота: {'ДА' if match.is_bad_homozygous else 'нет'}",
                 "   - Интерпретация:",
                 f"{_indent_block(format_content_for_markdown(match.interpretation), 6)}",
+                "   - PubMed:",
+                f"{_indent_block(_format_pubmed_articles(match.pubmed_articles), 6)}",
                 "",
             ]
         )
     return "\n".join(lines).strip()
+
+
+def _format_pubmed_articles(articles: list[tuple[str, str]]) -> str:
+    if not articles:
+        return "Ничего не найдено."
+    return "\n".join(f"- {title}: {url}" for title, url in articles)
 
 
 def _indent_block(text: str, spaces: int) -> str:
@@ -406,6 +508,10 @@ def _serialize_match(match: MatchResult) -> dict:
         "orientation": match.orientation,
         "classification": match.classification,
         "interpretation": match.interpretation,
+        "title_interpretation": match.title_interpretation,
+        "risk_allele": match.risk_allele,
+        "is_bad_homozygous": match.is_bad_homozygous,
+        "pubmed_articles": match.pubmed_articles,
         "entry": {
             "rsid": match.entry.rsid,
             "content": match.entry.content,
@@ -430,5 +536,9 @@ def _deserialize_match(payload: dict) -> MatchResult:
         orientation=payload.get("orientation", "plus"),
         classification=payload.get("classification", "neutral"),
         interpretation=payload.get("interpretation", ""),
+        title_interpretation=payload.get("title_interpretation", ""),
+        risk_allele=payload.get("risk_allele"),
+        is_bad_homozygous=bool(payload.get("is_bad_homozygous", False)),
+        pubmed_articles=[tuple(item) for item in payload.get("pubmed_articles", [])],
         entry=entry,
     )
