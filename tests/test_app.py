@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from core import (
+    build_interpretation_context,
     build_match_report,
     classify_interpretation,
     extract_risk_allele,
@@ -111,6 +112,25 @@ def test_extract_title_and_risk_allele() -> None:
     content = "|Title=Main interpretation\n|RiskAllele=G"
     assert extract_title_interpretation(content) == "Main interpretation"
     assert extract_risk_allele(content) == "G"
+
+
+def test_extract_title_and_risk_allele_without_pipe() -> None:
+    content = "Title=Main interpretation\nRiskAllele=A"
+    assert extract_title_interpretation(content) == "Main interpretation"
+    assert extract_risk_allele(content) == "A"
+
+
+def test_build_interpretation_context_for_generic_interpretation() -> None:
+    interpretation = "Специфичная интерпретация для генотипа не найдена. Показано общее описание SNP."
+    result = build_interpretation_context(interpretation, "Higher risk for disease", "G")
+    assert result == "Title: Higher risk for disease\nRiskAllele: G"
+
+
+def test_build_interpretation_context_appends_metadata() -> None:
+    result = build_interpretation_context("Protective association found.", "Main interpretation", "G")
+    assert "Protective association found." in result
+    assert "Title: Main interpretation" in result
+    assert "RiskAllele: G" in result
 
 
 def test_bad_homozygous_detection() -> None:
