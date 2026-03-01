@@ -6,11 +6,16 @@ from tempfile import NamedTemporaryFile
 import streamlit as st
 
 from core import (
+    MatchResult,
     SNPEntry,
+    build_match_report,
     extract_wikilinks,
     fetch_snp_entry,
     format_content_for_markdown,
+    hash_upload_identity,
     list_similar_rsids,
+    parse_23andme_file,
+    scan_snps_with_progress,
     split_wiki_sections,
 )
 
@@ -51,6 +56,25 @@ def render_entry(entry: SNPEntry) -> None:
             st.markdown(format_content_for_markdown(body))
 
 
+def render_matches(matches: list[MatchResult]) -> None:
+    st.markdown("## Совпадения из файла 23andMe")
+    for match in matches:
+        icon = "🟢" if match.classification == "good" else "🔴" if match.classification == "bad" else "⚪"
+        with st.expander(f"{icon} {match.rsid}: {match.user_genotype_plus} ({match.orientation})", expanded=False):
+            st.write(
+                {
+                    "генотип_23andme_plus": match.user_genotype_plus,
+                    "генотип_для_дампа": match.user_genotype_for_dump,
+                    "ориентация_дампа": match.orientation,
+                    "классификация": match.classification,
+                }
+            )
+            st.markdown("### Интерпретация")
+            st.markdown(format_content_for_markdown(match.interpretation))
+            st.markdown("### Полная карточка SNP")
+            render_entry(match.entry)
+
+
 def main() -> None:
     st.set_page_config(page_title="SNP Dump Viewer", page_icon="🧬", layout="wide")
 
@@ -72,6 +96,8 @@ def main() -> None:
 
     db_path = ensure_sqlite_file(uploaded_file)
 
+    st.markdown("---")
+    st.markdown("## Поиск одного SNP")
     rsid = st.text_input("Введите SNP (пример: rs7412)", placeholder="rs7412")
     suggestions = list_similar_rsids(db_path, rsid, limit=15) if rsid else []
 
@@ -79,20 +105,71 @@ def main() -> None:
         st.caption("Похожие SNP в базе:")
         st.write(", ".join(suggestions))
 
-    if not rsid:
+    if rsid:
+        try:
+            entry = fetch_snp_entry(db_path, rsid)
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Ошибка чтения базы данных: {exc}")
+            return
+
+        if entry is None:
+            st.warning("SNP не найден. Уточните rsid или выберите из подсказок выше.")
+        else:
+            render_entry(entry)
+
+    st.markdown("---")
+    st.markdown("## Массовое сопоставление с файлом 23andMe V5")
+    snp_file = st.file_uploader(
+        "Файл SNP (23andMe V5, txt)",
+        type=["txt"],
+        accept_multiple_files=False,
+        key="snp-file",
+    )
+
+    if snp_file is None:
         return
 
-    try:
-        entry = fetch_snp_entry(db_path, rsid)
-    except Exception as exc:  # noqa: BLE001
-        st.error(f"Ошибка чтения базы данных: {exc}")
+    snp_content = snp_file.getvalue().decode("utf-8", errors="ignore")
+    user_snps = parse_23andme_file(snp_content)
+    if not user_snps:
+        st.warning("Не удалось прочитать SNP из файла 23andMe.")
         return
 
-    if entry is None:
-        st.warning("SNP не найден. Уточните rsid или выберите из подсказок выше.")
-        return
+    progress_dir = Path(".progress")
+    progress_dir.mkdir(exist_ok=True)
+    progress_id = hash_upload_identity(uploaded_file.name, snp_file.name)
+    progress_path = progress_dir / f"match_progress_{progress_id}.json"
 
-    render_entry(entry)
+    if st.button("Запустить/продолжить поиск совпадений", type="primary"):
+        with st.spinner("Идет поиск совпадений..."):
+            matches, total_checked, stats = scan_snps_with_progress(
+                db_path=db_path,
+                snps=user_snps,
+                progress_path=progress_path,
+                save_interval=10,
+            )
+
+        completion = 100.0 * (total_checked / len(user_snps)) if user_snps else 0.0
+        st.success("Сканирование завершено или продолжено с сохраненной точки.")
+
+        stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+        stat_col1.metric("Проверено", f"{total_checked}/{len(user_snps)}")
+        stat_col2.metric("% выполнения", f"{completion:.1f}%")
+        stat_col3.metric("Найдено совпадений", stats["found"])
+        stat_col4.metric("Хорошие / Плохие", f"{stats['good']} / {stats['bad']}")
+
+        report = build_match_report(matches)
+        st.download_button(
+            label="Скачать отчет",
+            data=report.encode("utf-8"),
+            file_name="snp_match_report.txt",
+            mime="text/plain",
+        )
+
+        if matches:
+            render_matches(matches)
+        else:
+            st.info("Совпадения в дампе не найдены.")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,16 @@
-from core import extract_wikilinks, format_content_for_markdown, split_wiki_sections
+from pathlib import Path
+
+from core import (
+    build_match_report,
+    classify_interpretation,
+    convert_genotype_for_orientation,
+    detect_dump_orientation,
+    extract_wikilinks,
+    format_content_for_markdown,
+    parse_23andme_file,
+    scan_snps_with_progress,
+    split_wiki_sections,
+)
 
 
 def test_split_wiki_sections_with_headings() -> None:
@@ -70,3 +82,57 @@ def test_format_content_for_markdown_with_on_chip_template() -> None:
     formatted = format_content_for_markdown(text)
     assert "### on chip" in formatted
     assert "- 23andMe v1" in formatted
+
+
+def test_parse_23andme_file() -> None:
+    text = "# comment\nrs7412\t19\t44908684\tCT\nrs429358\t19\t44908822\tCC\n"
+    parsed = parse_23andme_file(text)
+    assert len(parsed) == 2
+    assert parsed[0].rsid == "rs7412"
+    assert parsed[0].genotype_plus == "CT"
+
+
+def test_detect_orientation_and_convert_genotype() -> None:
+    content = "{{Rsnum|StabilizedOrientation=minus}}"
+    assert detect_dump_orientation(content) == "minus"
+    assert convert_genotype_for_orientation("AG", "minus") == "TC"
+
+
+def test_classify_interpretation() -> None:
+    assert classify_interpretation("Protective effect") == "good"
+    assert classify_interpretation("Higher risk for disease") == "bad"
+
+
+def test_scan_snps_with_progress(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    progress_path = tmp_path / "progress.json"
+
+    import sqlite3
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "CREATE TABLE snps (rsid TEXT, content TEXT, scraped_at TEXT, attribution TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO snps (rsid, content, scraped_at, attribution) VALUES (?, ?, ?, ?)",
+            (
+                "rs7412",
+                "{{Rsnum|StabilizedOrientation=plus}}\n==CT==\nProtective association found.",
+                "2026-01-01",
+                "test",
+            ),
+        )
+        connection.commit()
+
+    snp_lines = "rs7412\t19\t44908684\tCT\nrs0000\t1\t1\tAA"
+    snps = parse_23andme_file(snp_lines)
+
+    matches, checked, stats = scan_snps_with_progress(db_path, snps, progress_path, save_interval=1)
+
+    assert checked == 2
+    assert len(matches) == 1
+    assert stats["found"] == 1
+    assert stats["good"] == 1
+    report = build_match_report(matches)
+    assert "rs7412" in report
+    assert "Protective association found." in report
