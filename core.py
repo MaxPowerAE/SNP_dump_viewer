@@ -326,6 +326,12 @@ def is_bad_homozygous_genotype(genotype: str, risk_allele: str | None) -> bool:
     return genotype[0] in set(risk_allele)
 
 
+def has_risk_allele_match(genotype: str, risk_allele: str | None) -> bool:
+    if not risk_allele:
+        return False
+    return bool(set(genotype).intersection(set(risk_allele)))
+
+
 def build_interpretation_context(
     interpretation: str,
     title_interpretation: str,
@@ -470,7 +476,7 @@ def scan_snps_with_progress(
         stats["found"] += 1
         if classification == "good":
             stats["good"] += 1
-        elif classification == "bad":
+        elif classification == "bad" and has_risk_allele_match(dump_genotype, risk_allele):
             stats["bad"] += 1
 
         checked_since_save += 1

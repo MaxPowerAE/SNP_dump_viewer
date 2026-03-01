@@ -12,6 +12,7 @@ from core import (
     extract_wikilinks,
     fetch_snp_entry,
     format_content_for_markdown,
+    has_risk_allele_match,
     hash_upload_identity,
     list_similar_rsids,
     parse_23andme_file,
@@ -67,7 +68,7 @@ def render_live_matches_summary(matches: list[MatchResult]) -> None:
 
 
 def match_warning_marker(match: MatchResult) -> str:
-    if len(match.user_genotype_for_dump) == 2 and match.classification == "bad":
+    if match.classification == "bad" and has_risk_allele_match(match.user_genotype_for_dump, match.risk_allele):
         return "🔴 !!!"
 
     if match.risk_allele and set(match.risk_allele).intersection(set(match.user_genotype_for_dump)):
@@ -224,8 +225,10 @@ def main() -> None:
         progress_bar = st.progress(0.0, text="Подготовка к сканированию...")
         metrics_placeholder = st.empty()
         live_matches_placeholder = st.empty()
+        flagged_matches_placeholder = st.empty()
 
         last_render = {"checked": 0, "found": -1}
+        rendered_flagged_match_ids: set[tuple[str, str, str]] = set()
 
         def render_progress(checked: int, total: int, matches: list[MatchResult], stats: dict[str, int]) -> None:
             if checked < total and checked - last_render["checked"] < 5 and stats["found"] == last_render["found"]:
@@ -242,7 +245,24 @@ def main() -> None:
                 stat_col4.metric("Хорошие / Плохие", f"{stats['good']} / {stats['bad']}")
 
             with live_matches_placeholder.container():
+                st.markdown("#### Последние 5 найденных совпадений")
                 render_live_matches_summary(matches)
+
+            with flagged_matches_placeholder.container():
+                st.markdown("#### Совпадения с пометкой !!!")
+                has_flagged = False
+                for match in matches:
+                    if match_warning_marker(match) != "🔴 !!!":
+                        continue
+                    has_flagged = True
+                    match_id = (match.rsid, match.user_genotype_plus, match.user_genotype_for_dump)
+                    if match_id in rendered_flagged_match_ids:
+                        continue
+                    rendered_flagged_match_ids.add(match_id)
+                    st.markdown(format_live_match_summary(match))
+
+                if not has_flagged:
+                    st.caption("Совпадения с пометкой !!! пока не найдены.")
 
             last_render["checked"] = checked
             last_render["found"] = stats["found"]
