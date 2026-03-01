@@ -63,11 +63,29 @@ def render_live_matches_summary(matches: list[MatchResult]) -> None:
         return
 
     for match in matches[-5:][::-1]:
-        icon = "🟢" if match.classification == "good" else "🔴" if match.classification == "bad" else "⚪"
-        st.markdown(
-            f"{icon} **{match.rsid}** — {match.user_genotype_plus} ({match.orientation}), "
-            f"класс: `{match.classification}`, RiskAllele: `{match.risk_allele or '—'}`, Trait: `{match.trait or '—'}`"
-        )
+        st.markdown(format_live_match_summary(match))
+
+
+def match_warning_marker(match: MatchResult) -> str:
+    if len(match.user_genotype_for_dump) == 2 and match.classification == "bad":
+        return "🔴 !!!"
+
+    if match.risk_allele and set(match.risk_allele).intersection(set(match.user_genotype_for_dump)):
+        return "🟡 !"
+
+    return ""
+
+
+def format_live_match_summary(match: MatchResult) -> str:
+    icon = "🟢" if match.classification == "good" else "🔴" if match.classification == "bad" else "⚪"
+    warning = match_warning_marker(match)
+    warning_part = f" {warning}" if warning else ""
+    return (
+        f"{icon}{warning_part} **{match.rsid}** — "
+        f"plus: `{match.user_genotype_plus}`, dump: `{match.user_genotype_for_dump}` ({match.orientation}), "
+        f"класс: `{match.classification}`, RiskAllele: `{match.risk_allele or '—'}`, Trait: `{match.trait or '—'}`, "
+        f"Interpretation: `{match.interpretation or '—'}`, Title: `{match.title_interpretation or '—'}`"
+    )
 
 
 def render_matches(matches: list[MatchResult]) -> None:
