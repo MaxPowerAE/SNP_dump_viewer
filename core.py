@@ -275,6 +275,10 @@ def extract_genotype_interpretation(content: str, genotype: str) -> str:
     return "Специфичная интерпретация для генотипа не найдена. Показано общее описание SNP."
 
 
+def interpretation_is_generic(text: str) -> bool:
+    return text.strip() == "Специфичная интерпретация для генотипа не найдена. Показано общее описание SNP."
+
+
 def extract_title_interpretation(content: str) -> str:
     section_pattern = re.compile(
         r"^==\s*title\s*==\s*$([\s\S]*?)(?=^==\s*.+?\s*==\s*$|\Z)",
@@ -284,7 +288,7 @@ def extract_title_interpretation(content: str) -> str:
     if section_match:
         return section_match.group(1).strip()
 
-    kv_pattern = re.compile(r"\|\s*title\s*=\s*(.+)", flags=re.IGNORECASE)
+    kv_pattern = re.compile(r"(?:^|\n)\s*\|?\s*title\s*=\s*([^\n\r|]+)", flags=re.IGNORECASE)
     kv_match = kv_pattern.search(content)
     if kv_match:
         return kv_match.group(1).strip()
@@ -293,7 +297,7 @@ def extract_title_interpretation(content: str) -> str:
 
 
 def extract_risk_allele(content: str) -> str | None:
-    pattern = re.compile(r"\|\s*riskallele\s*=\s*([^|\n\r]+)", flags=re.IGNORECASE)
+    pattern = re.compile(r"(?:^|\n)\s*\|?\s*riskallele\s*=\s*([^|\n\r]+)", flags=re.IGNORECASE)
     match = pattern.search(content)
     if not match:
         return None
@@ -307,6 +311,25 @@ def is_bad_homozygous_genotype(genotype: str, risk_allele: str | None) -> bool:
     if genotype[0] != genotype[1]:
         return False
     return genotype[0] in set(risk_allele)
+
+
+def build_interpretation_context(
+    interpretation: str,
+    title_interpretation: str,
+    risk_allele: str | None,
+) -> str:
+    notes: list[str] = []
+    if title_interpretation:
+        notes.append(f"Title: {title_interpretation}")
+    if risk_allele:
+        notes.append(f"RiskAllele: {risk_allele}")
+
+    if not notes:
+        return interpretation
+
+    if interpretation_is_generic(interpretation):
+        return "\n".join(notes)
+    return "\n".join([interpretation, *notes])
 
 
 def fetch_pubmed_links_for_snp(rsid: str, max_results: int = 3, timeout_s: int = 8) -> list[tuple[str, str]]:
@@ -406,6 +429,7 @@ def scan_snps_with_progress(
         title_interpretation = extract_title_interpretation(entry.content)
         risk_allele = extract_risk_allele(entry.content)
         is_bad_homozygous = is_bad_homozygous_genotype(dump_genotype, risk_allele)
+        interpretation = build_interpretation_context(interpretation, title_interpretation, risk_allele)
         classification = classify_interpretation(interpretation)
 
         match = MatchResult(
