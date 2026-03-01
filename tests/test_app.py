@@ -3,6 +3,10 @@ from pathlib import Path
 from core import (
     build_match_report,
     classify_interpretation,
+    extract_risk_allele,
+    extract_title_interpretation,
+    fetch_pubmed_links_for_snp,
+    is_bad_homozygous_genotype,
     convert_genotype_for_orientation,
     detect_dump_orientation,
     extract_wikilinks,
@@ -101,6 +105,45 @@ def test_detect_orientation_and_convert_genotype() -> None:
 def test_classify_interpretation() -> None:
     assert classify_interpretation("Protective effect") == "good"
     assert classify_interpretation("Higher risk for disease") == "bad"
+
+
+def test_extract_title_and_risk_allele() -> None:
+    content = "|Title=Main interpretation\n|RiskAllele=G"
+    assert extract_title_interpretation(content) == "Main interpretation"
+    assert extract_risk_allele(content) == "G"
+
+
+def test_bad_homozygous_detection() -> None:
+    assert is_bad_homozygous_genotype("GG", "G")
+    assert not is_bad_homozygous_genotype("AG", "G")
+
+
+def test_fetch_pubmed_links_for_snp(monkeypatch) -> None:
+    class FakeResponse:
+        def __init__(self, payload: str) -> None:
+            self.payload = payload
+
+        def read(self) -> bytes:
+            return self.payload.encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    calls = []
+
+    def fake_urlopen(url: str, timeout: int):
+        calls.append(url)
+        if "esearch.fcgi" in url:
+            return FakeResponse('{"esearchresult": {"idlist": ["123"]}}')
+        return FakeResponse('{"result": {"123": {"title": "Study rs7412"}}}')
+
+    monkeypatch.setattr("core.request.urlopen", fake_urlopen)
+    links = fetch_pubmed_links_for_snp("rs7412")
+    assert links == [("Study rs7412", "https://pubmed.ncbi.nlm.nih.gov/123/")]
+    assert len(calls) == 2
 
 
 def test_scan_snps_with_progress(tmp_path: Path) -> None:

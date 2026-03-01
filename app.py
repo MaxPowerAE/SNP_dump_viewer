@@ -61,16 +61,42 @@ def render_matches(matches: list[MatchResult]) -> None:
     for match in matches:
         icon = "🟢" if match.classification == "good" else "🔴" if match.classification == "bad" else "⚪"
         with st.expander(f"{icon} {match.rsid}: {match.user_genotype_plus} ({match.orientation})", expanded=False):
-            st.write(
-                {
-                    "генотип_23andme_plus": match.user_genotype_plus,
-                    "генотип_для_дампа": match.user_genotype_for_dump,
-                    "ориентация_дампа": match.orientation,
-                    "классификация": match.classification,
-                }
-            )
+            st.markdown("### Поля совпадения")
+            base_col, risk_col = st.columns(2)
+            with base_col:
+                st.write(
+                    {
+                        "генотип_23andme_plus": match.user_genotype_plus,
+                        "генотип_для_дампа": match.user_genotype_for_dump,
+                        "ориентация_дампа": match.orientation,
+                        "классификация": match.classification,
+                    }
+                )
+            with risk_col:
+                st.write(
+                    {
+                        "RiskAllele": match.risk_allele or "—",
+                        "плохая_гомозигота": "ДА" if match.is_bad_homozygous else "нет",
+                    }
+                )
+
+            if match.is_bad_homozygous:
+                st.error("⚠️ Обнаружена плохая гомозигота по RiskAllele.")
+
+            if match.title_interpretation:
+                st.markdown("### Интерпретация из поля Title")
+                st.markdown(format_content_for_markdown(match.title_interpretation))
+
             st.markdown("### Интерпретация")
             st.markdown(format_content_for_markdown(match.interpretation))
+
+            st.markdown("### PubMed")
+            if match.pubmed_articles:
+                for title, url in match.pubmed_articles:
+                    st.markdown(f"- [{title}]({url})")
+            else:
+                st.caption("По этому SNP статьи в PubMed не найдены.")
+
             st.markdown("### Полная карточка SNP")
             render_entry(match.entry)
 
