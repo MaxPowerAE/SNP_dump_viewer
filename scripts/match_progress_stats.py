@@ -109,8 +109,22 @@ def _build_trait_classification_rows(progress: dict[str, Any]) -> list[tuple[str
             grouped[trait] = {"GOOD": 0, "BAD": 0}
         grouped[trait][label] += 1
 
-    sorted_rows = sorted(grouped.items(), key=lambda item: (-sum(item[1].values()), item[0].lower()))
+    sorted_rows = sorted(grouped.items(), key=lambda item: (-item[1]["BAD"], -item[1]["GOOD"], item[0].lower()))
     return [(trait, str(counts["GOOD"]), str(counts["BAD"])) for trait, counts in sorted_rows]
+
+
+def _format_trait_classification_text(rows: list[tuple[str, str, str]]) -> str:
+    title = "Сводка по trait (сортировка по BAD ↓)"
+    if not rows:
+        return f"{title}\n\n—"
+
+    trait_w = max(len("Trait"), *(len(trait) for trait, _, _ in rows))
+    good_w = max(len("GOOD"), *(len(good) for _, good, _ in rows))
+    bad_w = max(len("BAD"), *(len(bad) for _, _, bad in rows))
+    line = f"+{'-' * (trait_w + 2)}+{'-' * (good_w + 2)}+{'-' * (bad_w + 2)}+"
+    header = f"| {'Trait':<{trait_w}} | {'GOOD':<{good_w}} | {'BAD':<{bad_w}} |"
+    body = [f"| {trait:<{trait_w}} | {good:<{good_w}} | {bad:<{bad_w}} |" for trait, good, bad in rows]
+    return "\n".join([title, "", line, header, line, *body, line])
 
 
 def _stringify_for_table(value: Any) -> str:
@@ -194,6 +208,14 @@ def _colorize_match_value(key: str, value: str, match: dict[str, Any]) -> str:
             return f"{match_color}{value}{ANSI_RESET}"
 
     return value
+
+
+def _find_risk_allele_positions(genotype: str, risk_allele: str) -> list[int]:
+    genotype_upper = genotype.upper()
+    risk_upper = risk_allele.upper().strip()
+    if not genotype_upper or not risk_upper:
+        return []
+    return [idx for idx, allele in enumerate(genotype_upper) if allele == risk_upper]
 
 
 def _trait_classification_table(rows: list[tuple[str, str, str]]) -> str:
@@ -294,12 +316,18 @@ def _launch_gui(
         traits_tree.insert("", "end", values=row)
     traits_tree.pack(fill="both", expand=True)
 
-    report_frame = ttk.LabelFrame(main, text="Детальный отчет", padding=8)
-    report_frame.pack(fill="both", expand=True)
+    trait_classification_rows = _build_trait_classification_rows({"matches": matches})
+
+    report_row = ttk.Frame(main)
+    report_row.pack(fill="both", expand=True)
+
+    report_frame = ttk.LabelFrame(report_row, text="Детальный отчет", padding=8)
+    report_frame.pack(side="left", fill="both", expand=True, padx=(0, 8))
     text = tk.Text(report_frame, wrap="word", font=("Consolas", 10))
     text.tag_configure("match_bad", foreground="#b91c1c", font=("Consolas", 10, "bold"))
     text.tag_configure("match_good", foreground="#166534", font=("Consolas", 10, "bold"))
     text.tag_configure("allele_blue", foreground="#1d4ed8", font=("Consolas", 10, "bold"))
+    text.tag_configure("risk_allele_mark", foreground="#b91c1c", background="#fee2e2", font=("Consolas", 10, "bold"))
 
     details_title = "\nДетализация совпадений"
     header, _, _ = report.partition(details_title)
@@ -338,6 +366,12 @@ def _launch_gui(
                         text.tag_add("match_bad", value_start, value_end)
                     elif match_color == ANSI_MATCH_GOOD:
                         text.tag_add("match_good", value_start, value_end)
+
+                    risk = _stringify_for_table(match.get("risk_allele"))
+                    for idx in _find_risk_allele_positions(value, risk):
+                        allele_start = f"{value_start}+{idx}c"
+                        allele_end = f"{allele_start}+1c"
+                        text.tag_add("risk_allele_mark", allele_start, allele_end)
                 elif key == "rsid":
                     if match_color == ANSI_MATCH_BAD:
                         text.tag_add("match_bad", value_start, value_end)
@@ -365,6 +399,16 @@ def _launch_gui(
     scrollbar = ttk.Scrollbar(report_frame, orient="vertical", command=text.yview)
     scrollbar.pack(side="right", fill="y")
     text.configure(yscrollcommand=scrollbar.set)
+
+    trait_panel = ttk.LabelFrame(report_row, text="Сводка по trait", padding=8)
+    trait_panel.pack(side="right", fill="y")
+    trait_text = tk.Text(trait_panel, width=45, wrap="none", font=("Consolas", 10), state="normal")
+    trait_text.insert("1.0", _format_trait_classification_text(trait_classification_rows))
+    trait_text.configure(state="disabled")
+    trait_text.pack(side="left", fill="y")
+    trait_scrollbar = ttk.Scrollbar(trait_panel, orient="vertical", command=trait_text.yview)
+    trait_scrollbar.pack(side="right", fill="y")
+    trait_text.configure(yscrollcommand=trait_scrollbar.set)
 
     root.mainloop()
 

@@ -1,6 +1,14 @@
 from pathlib import Path
 
-from scripts.match_progress_stats import _detailed_match_info, _resolve_progress_dir, build_report, write_report
+from scripts.match_progress_stats import (
+    _build_trait_classification_rows,
+    _detailed_match_info,
+    _find_risk_allele_positions,
+    _format_trait_classification_text,
+    _resolve_progress_dir,
+    build_report,
+    write_report,
+)
 
 
 def test_build_report_contains_compact_tables(tmp_path: Path) -> None:
@@ -194,3 +202,32 @@ def test_detailed_match_info_colorization_rules() -> None:
     assert "rsid: rs_no_match" in report
     assert "user_genotype_for_dump: \x1b[1;34mGG\x1b[0m" in report
     assert "risk_allele: \x1b[1;31mA\x1b[0m" in report
+
+
+def test_trait_classification_sorts_by_bad_desc() -> None:
+    progress = {
+        "matches": [
+            {"trait": "Sleep", "user_genotype_for_dump": "AA", "risk_allele": "A"},
+            {"trait": "Sleep", "user_genotype_for_dump": "AG", "risk_allele": "A"},
+            {"trait": "Focus", "user_genotype_for_dump": "CC", "risk_allele": "C"},
+            {"trait": "Focus", "user_genotype_for_dump": "TT", "risk_allele": "A"},
+            {"trait": "Mood", "user_genotype_for_dump": "GG", "risk_allele": "A"},
+        ]
+    }
+
+    rows = _build_trait_classification_rows(progress)
+
+    assert rows == [("Sleep", "0", "2"), ("Focus", "1", "1"), ("Mood", "1", "0")]
+
+
+def test_format_trait_classification_text_contains_sorted_title() -> None:
+    text = _format_trait_classification_text([("TraitA", "1", "3")])
+
+    assert "Сводка по trait (сортировка по BAD ↓)" in text
+    assert "| TraitA" in text
+
+
+def test_find_risk_allele_positions_marks_all_occurrences() -> None:
+    assert _find_risk_allele_positions("AAGT", "A") == [0, 1]
+    assert _find_risk_allele_positions("cc", "C") == [0, 1]
+    assert _find_risk_allele_positions("GG", "A") == []
