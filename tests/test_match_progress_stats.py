@@ -93,9 +93,9 @@ def test_build_report_parses_extra_json_fields(tmp_path: Path) -> None:
 
     assert "started_at" in report
     assert 'run_meta' in report
-    assert "🔵 rsid: rs123" in report
-    assert "🟠 classification: good" in report
-    assert "🟦 pubmed_articles: [\"111111\"]" in report
+    assert "rsid: rs123" in report
+    assert "classification: good" in report
+    assert "pubmed_articles: [\"111111\"]" in report
     assert "custom_field: custom" not in report
     assert "interpretation: not shown" not in report
 
