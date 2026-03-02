@@ -331,9 +331,7 @@ def _launch_gui(
     text.tag_configure("allele_blue", foreground="#1d4ed8", font=("Consolas", 10, "bold"))
     text.tag_configure("risk_allele_mark", foreground="#b91c1c", background="#fee2e2", font=("Consolas", 10, "bold"))
 
-    details_title = "\nДетализация совпадений"
-    header, _, _ = report.partition(details_title)
-    text.insert("1.0", header + details_title)
+    text.insert("1.0", "Детализация совпадений")
 
     if not matches:
         text.insert("end", "\nСовпадения отсутствуют")
@@ -404,10 +402,10 @@ def _launch_gui(
 
     trait_panel = ttk.LabelFrame(report_row, text="Сводка по trait", padding=8)
     trait_panel.pack(side="right", fill="y")
-    trait_text = tk.Text(trait_panel, width=45, wrap="none", font=("Consolas", 10), state="normal")
+    trait_text = tk.Text(trait_panel, width=60, wrap="none", font=("Consolas", 10), state="normal")
     trait_text.tag_configure("trait_good", foreground="#166534", font=("Consolas", 10, "bold"))
     trait_text.tag_configure("trait_bad", foreground="#b91c1c", font=("Consolas", 10, "bold"))
-    trait_text.insert("end", "Сводка по trait (сортировка по BAD ↓)\n\n")
+    trait_text.insert("end", "Сводка по trait (GOOD/BAD, сортировка по BAD ↓)\n\n")
 
     trait_w, good_w, bad_w, line, header, body = _trait_classification_layout(trait_classification_rows)
     trait_text.insert("end", f"{line}\n")
