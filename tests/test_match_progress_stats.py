@@ -74,15 +74,13 @@ def test_build_report_parses_extra_json_fields(tmp_path: Path) -> None:
     {
       "rsid": "rs123",
       "classification": "good",
+      "user_genotype_plus": "AG",
+      "orientation": "plus",
+      "title_interpretation": "Demo title",
+      "pubmed_articles": ["111111"],
       "user_genotype_for_dump": "AG",
       "risk_allele": "A",
-      "entry": {
-        "rsid": "rs123",
-        "content": "demo",
-        "scraped_at": "2025-01-01",
-        "attribution": "ref",
-        "extra_entry_field": 42
-      },
+      "interpretation": "not shown",
       "custom_field": "custom"
     }
   ]
@@ -95,8 +93,11 @@ def test_build_report_parses_extra_json_fields(tmp_path: Path) -> None:
 
     assert "started_at" in report
     assert 'run_meta' in report
-    assert "custom_field: custom" in report
-    assert "- extra_entry_field: 42" in report
+    assert "🔵 rsid: rs123" in report
+    assert "🟠 classification: good" in report
+    assert "🟦 pubmed_articles: [\"111111\"]" in report
+    assert "custom_field: custom" not in report
+    assert "interpretation: not shown" not in report
 
 
 def test_resolve_progress_dir_falls_back_to_repo_root(tmp_path: Path, monkeypatch) -> None:
