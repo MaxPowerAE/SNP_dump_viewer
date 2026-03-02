@@ -228,31 +228,34 @@ def _launch_gui(path: Path, report: str, stats_rows: list[tuple[str, str]], trai
     report_frame = ttk.LabelFrame(main, text="Детальный отчет", padding=8)
     report_frame.pack(fill="both", expand=True)
     text = tk.Text(report_frame, wrap="word", font=("Consolas", 10))
-    field_colors = {
-        "rsid": "#1d4ed8",
-        "user_genotype_plus": "#7c3aed",
-        "user_genotype_for_dump": "#9333ea",
-        "orientation": "#16a34a",
-        "classification": "#ea580c",
-        "risk_allele": "#dc2626",
-        "title_interpretation": "#ca8a04",
-        "trait": "#15803d",
-        "pubmed_articles": "#2563eb",
-    }
-    for field, color in field_colors.items():
-        text.tag_configure(field, foreground=color, font=("Consolas", 10, "bold"))
+    text.tag_configure("match_bad", foreground="#b91c1c", font=("Consolas", 10, "bold"))
+    text.tag_configure("match_good", foreground="#166534", font=("Consolas", 10, "bold"))
+    text.tag_configure("risk_allele", foreground="#dc2626", font=("Consolas", 10, "bold"))
 
     text.insert("1.0", report)
-    for field in DISPLAY_FIELDS:
-        start = "1.0"
-        while True:
-            idx = text.search(f" {field}:", start, stopindex="end")
-            if not idx:
-                break
-            line_start = f"{idx} linestart"
-            line_end = f"{idx} lineend"
-            text.tag_add(field, line_start, line_end)
-            start = line_end
+    start = "1.0"
+    while True:
+        bad_idx = text.search(" BAD", start, stopindex="end")
+        if not bad_idx:
+            break
+        text.tag_add("match_bad", f"{bad_idx} linestart", f"{bad_idx} lineend")
+        start = f"{bad_idx} lineend"
+
+    start = "1.0"
+    while True:
+        good_idx = text.search(" GOOD", start, stopindex="end")
+        if not good_idx:
+            break
+        text.tag_add("match_good", f"{good_idx} linestart", f"{good_idx} lineend")
+        start = f"{good_idx} lineend"
+
+    start = "1.0"
+    while True:
+        risk_idx = text.search(" risk_allele:", start, stopindex="end")
+        if not risk_idx:
+            break
+        text.tag_add("risk_allele", f"{risk_idx} linestart", f"{risk_idx} lineend")
+        start = f"{risk_idx} lineend"
 
     text.configure(state="disabled")
     text.pack(side="left", fill="both", expand=True)
