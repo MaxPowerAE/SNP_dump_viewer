@@ -92,14 +92,43 @@ def _has_risk_allele_match(match: dict[str, Any]) -> bool:
     return risk in genotype
 
 
+def _match_label(match: dict[str, Any]) -> str:
+    """Возвращает GOOD/BAD пометку для найденного совпадения."""
+    for key in ("status", "label", "result", "mark"):
+        raw = match.get(key)
+        if raw is None:
+            continue
+        value = str(raw).strip().lower()
+        if value in {"bad", "risk", "negative", "harmful"}:
+            return "BAD"
+        if value in {"good", "positive", "safe", "protective"}:
+            return "GOOD"
+
+    return "BAD" if _has_risk_allele_match(match) else "GOOD"
+
+
+def _detailed_match_info(matches: list[dict[str, Any]]) -> str:
+    if not matches:
+        return "\nДетализация совпадений\nСовпадения отсутствуют"
+
+    lines = ["\nДетализация совпадений"]
+    for idx, match in enumerate(matches, start=1):
+        lines.append(f"\n[{idx}] {_match_label(match)}")
+        lines.append(json.dumps(match, ensure_ascii=False, indent=2, sort_keys=True))
+
+    return "\n".join(lines)
+
+
 def build_report(path: Path) -> str:
     progress = _load_progress(path)
+    matches: list[dict[str, Any]] = [m for m in progress.get("matches", []) if isinstance(m, dict)]
     stats_rows, trait_rows = _build_summary(progress)
     return "\n\n".join(
         [
             f"Файл: {path}",
             _table(stats_rows, "Краткая статистика"),
             _table(trait_rows, "Топ-5 trait"),
+            _detailed_match_info(matches),
         ]
     )
 
