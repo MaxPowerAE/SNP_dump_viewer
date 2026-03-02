@@ -127,6 +127,18 @@ def _format_trait_classification_text(rows: list[tuple[str, str, str]]) -> str:
     return "\n".join([title, "", line, header, line, *body, line])
 
 
+def _trait_classification_layout(rows: list[tuple[str, str, str]]) -> tuple[int, int, int, str, str, list[str]]:
+    headers = ("Trait", "GOOD", "BAD")
+    display_rows = rows or [("—", "0", "0")]
+    trait_w = max(len(headers[0]), *(len(trait) for trait, _, _ in display_rows))
+    good_w = max(len(headers[1]), *(len(good) for _, good, _ in display_rows))
+    bad_w = max(len(headers[2]), *(len(bad) for _, _, bad in display_rows))
+    line = f"+{'-' * (trait_w + 2)}+{'-' * (good_w + 2)}+{'-' * (bad_w + 2)}+"
+    header = f"| {headers[0]:<{trait_w}} | {headers[1]:<{good_w}} | {headers[2]:<{bad_w}} |"
+    body = [f"| {trait:<{trait_w}} | {good:<{good_w}} | {bad:<{bad_w}} |" for trait, good, bad in display_rows]
+    return trait_w, good_w, bad_w, line, header, body
+
+
 def _stringify_for_table(value: Any) -> str:
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False, sort_keys=True)
@@ -219,17 +231,7 @@ def _find_risk_allele_positions(genotype: str, risk_allele: str) -> list[int]:
 
 
 def _trait_classification_table(rows: list[tuple[str, str, str]]) -> str:
-    headers = ("Trait", "GOOD", "BAD")
-    trait_w = max(len(headers[0]), *(len(trait) for trait, _, _ in rows)) if rows else len(headers[0])
-    good_w = max(len(headers[1]), *(len(good) for _, good, _ in rows)) if rows else len(headers[1])
-    bad_w = max(len(headers[2]), *(len(bad) for _, _, bad in rows)) if rows else len(headers[2])
-
-    line = f"+{'-' * (trait_w + 2)}+{'-' * (good_w + 2)}+{'-' * (bad_w + 2)}+"
-    header = f"| {headers[0]:<{trait_w}} | {headers[1]:<{good_w}} | {headers[2]:<{bad_w}} |"
-    if rows:
-        body = [f"| {trait:<{trait_w}} | {good:<{good_w}} | {bad:<{bad_w}} |" for trait, good, bad in rows]
-    else:
-        body = [f"| {'—':<{trait_w}} | {'0':<{good_w}} | {'0':<{bad_w}} |"]
+    _, _, _, line, header, body = _trait_classification_layout(rows)
 
     return "\n".join(["\nСводка по trait (GOOD/BAD)", line, header, line, *body, line])
 
@@ -403,7 +405,30 @@ def _launch_gui(
     trait_panel = ttk.LabelFrame(report_row, text="Сводка по trait", padding=8)
     trait_panel.pack(side="right", fill="y")
     trait_text = tk.Text(trait_panel, width=45, wrap="none", font=("Consolas", 10), state="normal")
-    trait_text.insert("1.0", _format_trait_classification_text(trait_classification_rows))
+    trait_text.tag_configure("trait_good", foreground="#166534", font=("Consolas", 10, "bold"))
+    trait_text.tag_configure("trait_bad", foreground="#b91c1c", font=("Consolas", 10, "bold"))
+    trait_text.insert("end", "Сводка по trait (сортировка по BAD ↓)\n\n")
+
+    trait_w, good_w, bad_w, line, header, body = _trait_classification_layout(trait_classification_rows)
+    trait_text.insert("end", f"{line}\n")
+
+    header_start = trait_text.index("end")
+    trait_text.insert("end", f"{header}\n")
+    good_header_start = f"{header_start}+{trait_w + 6}c"
+    bad_header_start = f"{good_header_start}+{good_w + 3}c"
+    trait_text.tag_add("trait_good", good_header_start, f"{good_header_start}+4c")
+    trait_text.tag_add("trait_bad", bad_header_start, f"{bad_header_start}+3c")
+
+    trait_text.insert("end", f"{line}\n")
+    for row in body:
+        row_start = trait_text.index("end")
+        trait_text.insert("end", f"{row}\n")
+        good_start = f"{row_start}+{trait_w + 4}c"
+        bad_start = f"{good_start}+{good_w + 3}c"
+        trait_text.tag_add("trait_good", good_start, f"{good_start}+{good_w}c")
+        trait_text.tag_add("trait_bad", bad_start, f"{bad_start}+{bad_w}c")
+
+    trait_text.insert("end", line)
     trait_text.configure(state="disabled")
     trait_text.pack(side="left", fill="y")
     trait_scrollbar = ttk.Scrollbar(trait_panel, orient="vertical", command=trait_text.yview)
