@@ -142,3 +142,21 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+
+
+## 9. Скрипт статистики по `match_progress*.json`
+
+Добавлен отдельный CLI-скрипт:
+
+```bash
+python scripts/match_progress_stats.py
+```
+
+По умолчанию он ищет самый свежий файл в `.progress/` и печатает краткую таблицу со статистикой.
+
+Можно передать явный файл:
+
+```bash
+python scripts/match_progress_stats.py .progress/match_progress_xxx.json
+```
+
