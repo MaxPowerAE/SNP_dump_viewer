@@ -42,6 +42,8 @@ def test_build_report_contains_compact_tables(tmp_path: Path) -> None:
     report = build_report(progress_path)
 
     assert "Краткая статистика" in report
+    assert "Поля progress JSON" in report
+    assert "next_index" in report
     assert "Проверено SNP" in report
     assert "Найдено совпадений" in report
     assert "Bad" in report
@@ -52,8 +54,49 @@ def test_build_report_contains_compact_tables(tmp_path: Path) -> None:
     assert "Sleep" in report
     assert "Детализация совпадений" in report
     assert "[1] BAD" in report
-    assert '"trait": "Cardio"' in report
+    assert "trait: Cardio" in report
+    assert "risk_allele: A" in report
     assert "[4] GOOD" in report
+
+
+def test_build_report_parses_extra_json_fields(tmp_path: Path) -> None:
+    progress_path = tmp_path / "match_progress_extra.json"
+    progress_path.write_text(
+        """
+{
+  "next_index": 1,
+  "found": 1,
+  "good": 1,
+  "bad": 0,
+  "started_at": "2026-03-01T12:00:00",
+  "run_meta": {"source": "test"},
+  "matches": [
+    {
+      "rsid": "rs123",
+      "classification": "good",
+      "user_genotype_for_dump": "AG",
+      "risk_allele": "A",
+      "entry": {
+        "rsid": "rs123",
+        "content": "demo",
+        "scraped_at": "2025-01-01",
+        "attribution": "ref",
+        "extra_entry_field": 42
+      },
+      "custom_field": "custom"
+    }
+  ]
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    report = build_report(progress_path)
+
+    assert "started_at" in report
+    assert 'run_meta' in report
+    assert "custom_field: custom" in report
+    assert "- extra_entry_field: 42" in report
 
 
 def test_resolve_progress_dir_falls_back_to_repo_root(tmp_path: Path, monkeypatch) -> None:
