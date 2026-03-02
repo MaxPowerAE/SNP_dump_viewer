@@ -42,6 +42,9 @@ def test_build_report_contains_compact_tables(tmp_path: Path) -> None:
     report = build_report(progress_path)
 
     assert "Краткая статистика" in report
+    assert "Сводка по trait (GOOD/BAD)" in report
+    assert "| Cardio    | 0    | 2   |" in report
+    assert "| Sleep     | 1    | 0   |" in report
     assert "Поля progress JSON" in report
     assert "next_index" in report
     assert "Проверено SNP" in report
@@ -57,6 +60,32 @@ def test_build_report_contains_compact_tables(tmp_path: Path) -> None:
     assert "trait: Cardio" in report
     assert "risk_allele: A" in report
     assert "[4] GOOD" in report
+
+
+def test_trait_summary_uses_fallback_name_for_empty_trait(tmp_path: Path) -> None:
+    progress_path = tmp_path / "match_progress_trait_fallback.json"
+    progress_path.write_text(
+        """
+{
+  "found": 1,
+  "good": 1,
+  "bad": 0,
+  "matches": [
+    {
+      "user_genotype_for_dump": "CC",
+      "risk_allele": "A",
+      "trait": ""
+    }
+  ]
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    report = build_report(progress_path)
+
+    assert "Без trait" in report
+    assert "| Без trait | 1    | 0   |" in report
 
 
 def test_build_report_parses_extra_json_fields(tmp_path: Path) -> None:
