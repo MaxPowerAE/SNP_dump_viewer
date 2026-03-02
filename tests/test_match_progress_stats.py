@@ -50,6 +50,10 @@ def test_build_report_contains_compact_tables(tmp_path: Path) -> None:
     assert "Топ-5 trait" in report
     assert "Cardio" in report
     assert "Sleep" in report
+    assert "Детализация совпадений" in report
+    assert "[1] BAD" in report
+    assert '"trait": "Cardio"' in report
+    assert "[4] GOOD" in report
 
 
 def test_resolve_progress_dir_falls_back_to_repo_root(tmp_path: Path, monkeypatch) -> None:
