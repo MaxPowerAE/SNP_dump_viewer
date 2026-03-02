@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from scripts.match_progress_stats import _resolve_progress_dir, build_report, write_report
+from scripts.match_progress_stats import _detailed_match_info, _resolve_progress_dir, build_report, write_report
 
 
 def test_build_report_contains_compact_tables(tmp_path: Path) -> None:
@@ -124,3 +124,44 @@ def test_write_report_uses_default_name(tmp_path: Path) -> None:
 
     assert report_path == tmp_path / "match_progress_demo.report.txt"
     assert report_path.read_text(encoding="utf-8") == "demo"
+
+
+def test_detailed_match_info_colorization_rules() -> None:
+    matches = [
+        {
+            "rsid": "rs_bad",
+            "classification": "bad",
+            "user_genotype_for_dump": "AG",
+            "risk_allele": "A",
+        },
+        {
+            "rsid": "rs_good",
+            "classification": "good",
+            "user_genotype_for_dump": "TT",
+            "risk_allele": "T",
+        },
+        {
+            "rsid": "rs_neutral",
+            "classification": "neutral",
+            "user_genotype_for_dump": "CC",
+            "risk_allele": "C",
+        },
+        {
+            "rsid": "rs_no_match",
+            "classification": "bad",
+            "user_genotype_for_dump": "GG",
+            "risk_allele": "A",
+        },
+    ]
+
+    report = _detailed_match_info(matches, colorize=True)
+
+    assert "rsid: \x1b[1;31mrs_bad\x1b[0m" in report
+    assert "user_genotype_for_dump: \x1b[1;31mAG\x1b[0m" in report
+    assert "rsid: \x1b[1;32mrs_good\x1b[0m" in report
+    assert "user_genotype_for_dump: \x1b[1;32mTT\x1b[0m" in report
+    assert "rsid: rs_neutral" in report
+    assert "user_genotype_for_dump: \x1b[1;34mCC\x1b[0m" in report
+    assert "rsid: rs_no_match" in report
+    assert "user_genotype_for_dump: \x1b[1;34mGG\x1b[0m" in report
+    assert "risk_allele: \x1b[1;31mA\x1b[0m" in report
