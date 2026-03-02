@@ -119,6 +119,80 @@ def _detailed_match_info(matches: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _default_report_path(source_path: Path) -> Path:
+    return source_path.with_suffix(".report.txt")
+
+
+def write_report(path: Path, report: str, output_path: Path | None = None) -> Path:
+    target = output_path or _default_report_path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(report, encoding="utf-8")
+    return target
+
+
+def _launch_gui(path: Path, report: str, stats_rows: list[tuple[str, str]], trait_rows: list[tuple[str, str]]) -> None:
+    import tkinter as tk
+    from tkinter import ttk
+
+    root = tk.Tk()
+    root.title("SNP Match Progress Stats")
+    root.geometry("1024x760")
+
+    style = ttk.Style(root)
+    style.theme_use("clam")
+    style.configure("Header.TLabel", font=("Segoe UI", 14, "bold"))
+
+    main = ttk.Frame(root, padding=16)
+    main.pack(fill="both", expand=True)
+
+    ttk.Label(main, text=f"Отчет по файлу: {path}", style="Header.TLabel").pack(anchor="w")
+
+    tables = ttk.Frame(main)
+    tables.pack(fill="x", pady=(12, 10))
+
+    stats_frame = ttk.LabelFrame(tables, text="Краткая статистика", padding=8)
+    stats_frame.pack(side="left", fill="both", expand=True, padx=(0, 8))
+    stats_tree = ttk.Treeview(stats_frame, columns=("metric", "value"), show="headings", height=8)
+    stats_tree.heading("metric", text="Метрика")
+    stats_tree.heading("value", text="Значение")
+    stats_tree.column("metric", width=230, anchor="w")
+    stats_tree.column("value", width=160, anchor="w")
+    for row in stats_rows:
+        stats_tree.insert("", "end", values=row)
+    stats_tree.pack(fill="both", expand=True)
+
+    traits_frame = ttk.LabelFrame(tables, text="Топ trait", padding=8)
+    traits_frame.pack(side="left", fill="both", expand=True)
+    traits_tree = ttk.Treeview(traits_frame, columns=("trait", "count"), show="headings", height=8)
+    traits_tree.heading("trait", text="Trait")
+    traits_tree.heading("count", text="Совпадений")
+    traits_tree.column("trait", width=200, anchor="w")
+    traits_tree.column("count", width=120, anchor="w")
+    for row in trait_rows:
+        traits_tree.insert("", "end", values=row)
+    traits_tree.pack(fill="both", expand=True)
+
+    report_frame = ttk.LabelFrame(main, text="Детальный отчет", padding=8)
+    report_frame.pack(fill="both", expand=True)
+    text = tk.Text(report_frame, wrap="word", font=("Consolas", 10))
+    text.insert("1.0", report)
+    text.configure(state="disabled")
+    text.pack(side="left", fill="both", expand=True)
+    scrollbar = ttk.Scrollbar(report_frame, orient="vertical", command=text.yview)
+    scrollbar.pack(side="right", fill="y")
+    text.configure(yscrollcommand=scrollbar.set)
+
+    root.mainloop()
+
+
+def show_gui(path: Path, report: str, stats_rows: list[tuple[str, str]], trait_rows: list[tuple[str, str]]) -> bool:
+    try:
+        _launch_gui(path, report, stats_rows, trait_rows)
+        return True
+    except Exception:
+        return False
+
+
 def build_report(path: Path) -> str:
     progress = _load_progress(path)
     matches: list[dict[str, Any]] = [m for m in progress.get("matches", []) if isinstance(m, dict)]
@@ -136,7 +210,7 @@ def build_report(path: Path) -> str:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Парсит match_progress*.json и выводит краткую таблицу статистики. "
+            "Парсит match_progress*.json, создает текстовый отчет и показывает статистику в GUI. "
             "Если путь не указан — берется самый свежий файл из .progress/."
         )
     )
@@ -145,6 +219,15 @@ def parse_args() -> argparse.Namespace:
         "--progress-dir",
         default=".progress",
         help="Каталог для автоматического поиска match_progress*.json (по умолчанию: .progress)",
+    )
+    parser.add_argument(
+        "--report-out",
+        help="Куда сохранить текстовый отчет (по умолчанию рядом с json: *.report.txt)",
+    )
+    parser.add_argument(
+        "--no-gui",
+        action="store_true",
+        help="Не открывать GUI (только CLI-вывод и сохранение отчета)",
     )
     return parser.parse_args()
 
@@ -160,7 +243,18 @@ def main() -> None:
     if not target.exists():
         raise FileNotFoundError(f"Файл не найден: {target}")
 
-    print(build_report(target))
+    progress = _load_progress(target)
+    stats_rows, trait_rows = _build_summary(progress)
+    report = build_report(target)
+    report_path = write_report(target, report, Path(args.report_out) if args.report_out else None)
+
+    print(report)
+    print(f"\nОтчет сохранен: {report_path}")
+
+    if not args.no_gui:
+        is_gui_opened = show_gui(target, report, stats_rows, trait_rows)
+        if not is_gui_opened:
+            print("GUI недоступен в текущем окружении. Используйте --no-gui для подавления этого сообщения.")
 
 
 if __name__ == "__main__":

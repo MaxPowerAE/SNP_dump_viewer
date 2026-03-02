@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from scripts.match_progress_stats import _resolve_progress_dir, build_report
+from scripts.match_progress_stats import _resolve_progress_dir, build_report, write_report
 
 
 def test_build_report_contains_compact_tables(tmp_path: Path) -> None:
@@ -70,3 +70,13 @@ def test_resolve_progress_dir_falls_back_to_repo_root(tmp_path: Path, monkeypatc
     resolved = _resolve_progress_dir(Path(".progress"))
 
     assert resolved == project_root / ".progress"
+
+
+def test_write_report_uses_default_name(tmp_path: Path) -> None:
+    progress_path = tmp_path / "match_progress_demo.json"
+    progress_path.write_text("{}", encoding="utf-8")
+
+    report_path = write_report(progress_path, "demo")
+
+    assert report_path == tmp_path / "match_progress_demo.report.txt"
+    assert report_path.read_text(encoding="utf-8") == "demo"
