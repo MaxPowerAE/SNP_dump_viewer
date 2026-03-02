@@ -22,6 +22,7 @@ DISPLAY_FIELDS = [
 ANSI_RESET = "\033[0m"
 ANSI_MATCH_BAD = "\033[1;31m"
 ANSI_MATCH_GOOD = "\033[1;32m"
+ANSI_FIELD_BLUE = "\033[1;34m"
 
 
 def _load_progress(path: Path) -> dict[str, Any]:
@@ -150,7 +151,37 @@ def _match_label(match: dict[str, Any]) -> str:
     return "BAD" if _has_risk_allele_match(match) else "GOOD"
 
 
-def _detailed_match_info(matches: list[dict[str, Any]]) -> str:
+def _match_field_color(match: dict[str, Any]) -> str | None:
+    classification = str(match.get("classification") or "").strip().lower()
+    if classification == "neutral" or not _has_risk_allele_match(match):
+        return None
+    if classification == "bad":
+        return ANSI_MATCH_BAD
+    if classification == "good":
+        return ANSI_MATCH_GOOD
+    return None
+
+
+def _colorize_match_value(key: str, value: str, match: dict[str, Any]) -> str:
+    if key == "risk_allele" and value != "null":
+        return f"{ANSI_MATCH_BAD}{value}{ANSI_RESET}"
+
+    if key == "user_genotype_for_dump":
+        base_value = f"{ANSI_FIELD_BLUE}{value}{ANSI_RESET}"
+        match_color = _match_field_color(match)
+        if match_color:
+            return f"{match_color}{value}{ANSI_RESET}"
+        return base_value
+
+    if key == "rsid":
+        match_color = _match_field_color(match)
+        if match_color:
+            return f"{match_color}{value}{ANSI_RESET}"
+
+    return value
+
+
+def _detailed_match_info(matches: list[dict[str, Any]], *, colorize: bool = False) -> str:
     if not matches:
         return "\nДетализация совпадений\nСовпадения отсутствуют"
 
@@ -159,7 +190,10 @@ def _detailed_match_info(matches: list[dict[str, Any]]) -> str:
         lines.append(f"\n[{idx}] {_match_label(match)}")
         for key in DISPLAY_FIELDS:
             if key in match:
-                lines.append(f"{key}: {_stringify_for_table(match.get(key))}")
+                value = _stringify_for_table(match.get(key))
+                if colorize:
+                    value = _colorize_match_value(key, value, match)
+                lines.append(f"{key}: {value}")
 
     return "\n".join(lines)
 
@@ -181,7 +215,13 @@ def write_report(path: Path, report: str, output_path: Path | None = None) -> Pa
     return target
 
 
-def _launch_gui(path: Path, report: str, stats_rows: list[tuple[str, str]], trait_rows: list[tuple[str, str]]) -> None:
+def _launch_gui(
+    path: Path,
+    report: str,
+    stats_rows: list[tuple[str, str]],
+    trait_rows: list[tuple[str, str]],
+    matches: list[dict[str, Any]],
+) -> None:
     import tkinter as tk
     from tkinter import ttk
 
@@ -228,8 +268,43 @@ def _launch_gui(path: Path, report: str, stats_rows: list[tuple[str, str]], trai
     text = tk.Text(report_frame, wrap="word", font=("Consolas", 10))
     text.tag_configure("match_bad", foreground="#b91c1c", font=("Consolas", 10, "bold"))
     text.tag_configure("match_good", foreground="#166534", font=("Consolas", 10, "bold"))
+    text.tag_configure("allele_blue", foreground="#1d4ed8", font=("Consolas", 10, "bold"))
 
-    text.insert("1.0", report)
+    details_title = "\nДетализация совпадений"
+    header, _, _ = report.partition(details_title)
+    text.insert("1.0", header + details_title)
+
+    if not matches:
+        text.insert("end", "\nСовпадения отсутствуют")
+    else:
+        for idx, match in enumerate(matches, start=1):
+            text.insert("end", f"\n\n[{idx}] {_match_label(match)}\n")
+
+            for key in DISPLAY_FIELDS:
+                if key not in match:
+                    continue
+
+                line_start = text.index("end")
+                value = _stringify_for_table(match.get(key))
+                text.insert("end", f"{key}: {value}\n")
+                value_start = f"{line_start}+{len(key) + 2}c"
+                value_end = f"{value_start}+{len(value)}c"
+
+                match_color = _match_field_color(match)
+                if key == "risk_allele" and value != "null":
+                    text.tag_add("match_bad", value_start, value_end)
+                elif key == "user_genotype_for_dump":
+                    text.tag_add("allele_blue", value_start, value_end)
+                    if match_color == ANSI_MATCH_BAD:
+                        text.tag_add("match_bad", value_start, value_end)
+                    elif match_color == ANSI_MATCH_GOOD:
+                        text.tag_add("match_good", value_start, value_end)
+                elif key == "rsid":
+                    if match_color == ANSI_MATCH_BAD:
+                        text.tag_add("match_bad", value_start, value_end)
+                    elif match_color == ANSI_MATCH_GOOD:
+                        text.tag_add("match_good", value_start, value_end)
+
     start = "1.0"
     while True:
         bad_idx = text.search(" BAD", start, stopindex="end")
@@ -255,9 +330,15 @@ def _launch_gui(path: Path, report: str, stats_rows: list[tuple[str, str]], trai
     root.mainloop()
 
 
-def show_gui(path: Path, report: str, stats_rows: list[tuple[str, str]], trait_rows: list[tuple[str, str]]) -> bool:
+def show_gui(
+    path: Path,
+    report: str,
+    stats_rows: list[tuple[str, str]],
+    trait_rows: list[tuple[str, str]],
+    matches: list[dict[str, Any]],
+) -> bool:
     try:
-        _launch_gui(path, report, stats_rows, trait_rows)
+        _launch_gui(path, report, stats_rows, trait_rows, matches)
         return True
     except Exception:
         return False
@@ -265,6 +346,10 @@ def show_gui(path: Path, report: str, stats_rows: list[tuple[str, str]], trait_r
 
 def build_report(path: Path) -> str:
     progress = _load_progress(path)
+    return _build_report_from_progress(path, progress)
+
+
+def _build_report_from_progress(path: Path, progress: dict[str, Any], *, colorize: bool = False) -> str:
     matches: list[dict[str, Any]] = [m for m in progress.get("matches", []) if isinstance(m, dict)]
     stats_rows, trait_rows = _build_summary(progress)
     progress_rows = _build_progress_rows(progress, len(matches))
@@ -274,7 +359,7 @@ def build_report(path: Path) -> str:
             _table(progress_rows, "Поля progress JSON"),
             _table(stats_rows, "Краткая статистика"),
             _table(trait_rows, "Топ-5 trait"),
-            _detailed_match_info(matches),
+            _detailed_match_info(matches, colorize=colorize),
         ]
     )
 
@@ -317,15 +402,16 @@ def main() -> None:
 
     progress = _load_progress(target)
     stats_rows, trait_rows = _build_summary(progress)
-    report = build_report(target)
-    colorized_report = _colorize_report(report)
+    report = _build_report_from_progress(target, progress)
+    colorized_report = _colorize_report(_build_report_from_progress(target, progress, colorize=True))
     report_path = write_report(target, report, Path(args.report_out) if args.report_out else None)
 
     print(colorized_report)
     print(f"\nОтчет сохранен: {report_path}")
 
     if not args.no_gui:
-        is_gui_opened = show_gui(target, report, stats_rows, trait_rows)
+        matches: list[dict[str, Any]] = [m for m in progress.get("matches", []) if isinstance(m, dict)]
+        is_gui_opened = show_gui(target, report, stats_rows, trait_rows, matches)
         if not is_gui_opened:
             print("GUI недоступен в текущем окружении. Используйте --no-gui для подавления этого сообщения.")
 
