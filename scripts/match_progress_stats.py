@@ -80,6 +80,32 @@ def _build_summary(progress: dict[str, Any]) -> tuple[list[tuple[str, str]], lis
     return stats_rows, trait_rows
 
 
+def _stringify_for_table(value: Any) -> str:
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if value is None:
+        return "null"
+    return str(value)
+
+
+def _build_progress_rows(progress: dict[str, Any], match_count: int) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    known_keys = ["next_index", "found", "good", "bad"]
+
+    for key in known_keys:
+        if key in progress:
+            rows.append((key, _stringify_for_table(progress.get(key))))
+
+    rows.append(("matches", str(match_count)))
+
+    for key in sorted(progress):
+        if key in {*known_keys, "matches"}:
+            continue
+        rows.append((key, _stringify_for_table(progress.get(key))))
+
+    return rows
+
+
 def _normalize_trait(value: Any) -> str:
     return str(value).strip()
 
@@ -111,10 +137,48 @@ def _detailed_match_info(matches: list[dict[str, Any]]) -> str:
     if not matches:
         return "\nДетализация совпадений\nСовпадения отсутствуют"
 
+    match_known_keys = [
+        "rsid",
+        "user_genotype_plus",
+        "user_genotype_for_dump",
+        "orientation",
+        "classification",
+        "interpretation",
+        "title_interpretation",
+        "trait",
+        "risk_allele",
+        "is_bad_homozygous",
+        "pubmed_articles",
+        "entry",
+    ]
+    entry_known_keys = ["rsid", "content", "scraped_at", "attribution"]
+
     lines = ["\nДетализация совпадений"]
     for idx, match in enumerate(matches, start=1):
         lines.append(f"\n[{idx}] {_match_label(match)}")
-        lines.append(json.dumps(match, ensure_ascii=False, indent=2, sort_keys=True))
+        for key in match_known_keys:
+            if key == "entry":
+                entry = match.get("entry")
+                if isinstance(entry, dict):
+                    lines.append("entry:")
+                    for entry_key in entry_known_keys:
+                        if entry_key in entry:
+                            lines.append(f"  - {entry_key}: {_stringify_for_table(entry.get(entry_key))}")
+                    for entry_key in sorted(entry):
+                        if entry_key in entry_known_keys:
+                            continue
+                        lines.append(f"  - {entry_key}: {_stringify_for_table(entry.get(entry_key))}")
+                elif entry is not None:
+                    lines.append(f"entry: {_stringify_for_table(entry)}")
+                continue
+
+            if key in match:
+                lines.append(f"{key}: {_stringify_for_table(match.get(key))}")
+
+        for key in sorted(match):
+            if key in match_known_keys:
+                continue
+            lines.append(f"{key}: {_stringify_for_table(match.get(key))}")
 
     return "\n".join(lines)
 
@@ -197,9 +261,11 @@ def build_report(path: Path) -> str:
     progress = _load_progress(path)
     matches: list[dict[str, Any]] = [m for m in progress.get("matches", []) if isinstance(m, dict)]
     stats_rows, trait_rows = _build_summary(progress)
+    progress_rows = _build_progress_rows(progress, len(matches))
     return "\n\n".join(
         [
             f"Файл: {path}",
+            _table(progress_rows, "Поля progress JSON"),
             _table(stats_rows, "Краткая статистика"),
             _table(trait_rows, "Топ-5 trait"),
             _detailed_match_info(matches),
