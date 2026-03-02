@@ -6,6 +6,30 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+DISPLAY_FIELDS = [
+    "rsid",
+    "user_genotype_plus",
+    "user_genotype_for_dump",
+    "orientation",
+    "classification",
+    "risk_allele",
+    "title_interpretation",
+    "trait",
+    "pubmed_articles",
+]
+
+FIELD_LABEL_MARKERS: dict[str, str] = {
+    "rsid": "🔵",
+    "user_genotype_plus": "🟣",
+    "user_genotype_for_dump": "🟪",
+    "orientation": "🟩",
+    "classification": "🟠",
+    "risk_allele": "🔴",
+    "title_interpretation": "🟨",
+    "trait": "🟢",
+    "pubmed_articles": "🟦",
+}
+
 
 def _load_progress(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -137,48 +161,13 @@ def _detailed_match_info(matches: list[dict[str, Any]]) -> str:
     if not matches:
         return "\nДетализация совпадений\nСовпадения отсутствуют"
 
-    match_known_keys = [
-        "rsid",
-        "user_genotype_plus",
-        "user_genotype_for_dump",
-        "orientation",
-        "classification",
-        "interpretation",
-        "title_interpretation",
-        "trait",
-        "risk_allele",
-        "is_bad_homozygous",
-        "pubmed_articles",
-        "entry",
-    ]
-    entry_known_keys = ["rsid", "content", "scraped_at", "attribution"]
-
     lines = ["\nДетализация совпадений"]
     for idx, match in enumerate(matches, start=1):
         lines.append(f"\n[{idx}] {_match_label(match)}")
-        for key in match_known_keys:
-            if key == "entry":
-                entry = match.get("entry")
-                if isinstance(entry, dict):
-                    lines.append("entry:")
-                    for entry_key in entry_known_keys:
-                        if entry_key in entry:
-                            lines.append(f"  - {entry_key}: {_stringify_for_table(entry.get(entry_key))}")
-                    for entry_key in sorted(entry):
-                        if entry_key in entry_known_keys:
-                            continue
-                        lines.append(f"  - {entry_key}: {_stringify_for_table(entry.get(entry_key))}")
-                elif entry is not None:
-                    lines.append(f"entry: {_stringify_for_table(entry)}")
-                continue
-
+        for key in DISPLAY_FIELDS:
             if key in match:
-                lines.append(f"{key}: {_stringify_for_table(match.get(key))}")
-
-        for key in sorted(match):
-            if key in match_known_keys:
-                continue
-            lines.append(f"{key}: {_stringify_for_table(match.get(key))}")
+                marker = FIELD_LABEL_MARKERS.get(key, "•")
+                lines.append(f"{marker} {key}: {_stringify_for_table(match.get(key))}")
 
     return "\n".join(lines)
 
@@ -239,7 +228,32 @@ def _launch_gui(path: Path, report: str, stats_rows: list[tuple[str, str]], trai
     report_frame = ttk.LabelFrame(main, text="Детальный отчет", padding=8)
     report_frame.pack(fill="both", expand=True)
     text = tk.Text(report_frame, wrap="word", font=("Consolas", 10))
+    field_colors = {
+        "rsid": "#1d4ed8",
+        "user_genotype_plus": "#7c3aed",
+        "user_genotype_for_dump": "#9333ea",
+        "orientation": "#16a34a",
+        "classification": "#ea580c",
+        "risk_allele": "#dc2626",
+        "title_interpretation": "#ca8a04",
+        "trait": "#15803d",
+        "pubmed_articles": "#2563eb",
+    }
+    for field, color in field_colors.items():
+        text.tag_configure(field, foreground=color, font=("Consolas", 10, "bold"))
+
     text.insert("1.0", report)
+    for field in DISPLAY_FIELDS:
+        start = "1.0"
+        while True:
+            idx = text.search(f" {field}:", start, stopindex="end")
+            if not idx:
+                break
+            line_start = f"{idx} linestart"
+            line_end = f"{idx} lineend"
+            text.tag_add(field, line_start, line_end)
+            start = line_end
+
     text.configure(state="disabled")
     text.pack(side="left", fill="both", expand=True)
     scrollbar = ttk.Scrollbar(report_frame, orient="vertical", command=text.yview)
