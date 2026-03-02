@@ -18,6 +18,21 @@ def _find_latest_progress_file(base_dir: Path) -> Path:
     return candidates[0]
 
 
+def _resolve_progress_dir(progress_dir: Path) -> Path:
+    if progress_dir.is_absolute():
+        return progress_dir
+
+    cwd_candidate = progress_dir
+    script_root_candidate = Path(__file__).resolve().parent.parent / progress_dir
+
+    if cwd_candidate.exists():
+        return cwd_candidate
+    if script_root_candidate.exists():
+        return script_root_candidate
+
+    return cwd_candidate
+
+
 def _safe_percent(part: int, total: int) -> str:
     if total == 0:
         return "0.0%"
@@ -110,7 +125,8 @@ def main() -> None:
     if args.path:
         target = Path(args.path)
     else:
-        target = _find_latest_progress_file(Path(args.progress_dir))
+        progress_dir = _resolve_progress_dir(Path(args.progress_dir))
+        target = _find_latest_progress_file(progress_dir)
 
     if not target.exists():
         raise FileNotFoundError(f"Файл не найден: {target}")

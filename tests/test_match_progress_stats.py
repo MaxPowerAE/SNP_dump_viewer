@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from scripts.match_progress_stats import build_report
+from scripts.match_progress_stats import _resolve_progress_dir, build_report
 
 
 def test_build_report_contains_compact_tables(tmp_path: Path) -> None:
@@ -50,3 +50,19 @@ def test_build_report_contains_compact_tables(tmp_path: Path) -> None:
     assert "Топ-5 trait" in report
     assert "Cardio" in report
     assert "Sleep" in report
+
+
+def test_resolve_progress_dir_falls_back_to_repo_root(tmp_path: Path, monkeypatch) -> None:
+    project_root = tmp_path / "SNP_dump_viewer"
+    scripts_dir = project_root / "scripts"
+    scripts_dir.mkdir(parents=True)
+    (project_root / ".progress").mkdir()
+
+    fake_script = scripts_dir / "match_progress_stats.py"
+    fake_script.write_text("# stub", encoding="utf-8")
+    monkeypatch.chdir(scripts_dir)
+    monkeypatch.setattr("scripts.match_progress_stats.__file__", str(fake_script))
+
+    resolved = _resolve_progress_dir(Path(".progress"))
+
+    assert resolved == project_root / ".progress"
