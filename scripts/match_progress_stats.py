@@ -98,6 +98,21 @@ def _build_summary(progress: dict[str, Any]) -> tuple[list[tuple[str, str]], lis
     return stats_rows, trait_rows
 
 
+def _build_trait_classification_rows(progress: dict[str, Any]) -> list[tuple[str, str, str]]:
+    matches: list[dict[str, Any]] = [m for m in progress.get("matches", []) if isinstance(m, dict)]
+    grouped: dict[str, dict[str, int]] = {}
+
+    for match in matches:
+        trait = _normalize_trait(match.get("trait", "")) or "Без trait"
+        label = _match_label(match)
+        if trait not in grouped:
+            grouped[trait] = {"GOOD": 0, "BAD": 0}
+        grouped[trait][label] += 1
+
+    sorted_rows = sorted(grouped.items(), key=lambda item: (-sum(item[1].values()), item[0].lower()))
+    return [(trait, str(counts["GOOD"]), str(counts["BAD"])) for trait, counts in sorted_rows]
+
+
 def _stringify_for_table(value: Any) -> str:
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False, sort_keys=True)
@@ -179,6 +194,22 @@ def _colorize_match_value(key: str, value: str, match: dict[str, Any]) -> str:
             return f"{match_color}{value}{ANSI_RESET}"
 
     return value
+
+
+def _trait_classification_table(rows: list[tuple[str, str, str]]) -> str:
+    headers = ("Trait", "GOOD", "BAD")
+    trait_w = max(len(headers[0]), *(len(trait) for trait, _, _ in rows)) if rows else len(headers[0])
+    good_w = max(len(headers[1]), *(len(good) for _, good, _ in rows)) if rows else len(headers[1])
+    bad_w = max(len(headers[2]), *(len(bad) for _, _, bad in rows)) if rows else len(headers[2])
+
+    line = f"+{'-' * (trait_w + 2)}+{'-' * (good_w + 2)}+{'-' * (bad_w + 2)}+"
+    header = f"| {headers[0]:<{trait_w}} | {headers[1]:<{good_w}} | {headers[2]:<{bad_w}} |"
+    if rows:
+        body = [f"| {trait:<{trait_w}} | {good:<{good_w}} | {bad:<{bad_w}} |" for trait, good, bad in rows]
+    else:
+        body = [f"| {'—':<{trait_w}} | {'0':<{good_w}} | {'0':<{bad_w}} |"]
+
+    return "\n".join(["\nСводка по trait (GOOD/BAD)", line, header, line, *body, line])
 
 
 def _detailed_match_info(matches: list[dict[str, Any]], *, colorize: bool = False) -> str:
@@ -278,7 +309,15 @@ def _launch_gui(
         text.insert("end", "\nСовпадения отсутствуют")
     else:
         for idx, match in enumerate(matches, start=1):
-            text.insert("end", f"\n\n[{idx}] {_match_label(match)}\n")
+            label = _match_label(match)
+            header_start = text.index("end")
+            text.insert("end", f"\n\n[{idx}] {label}\n")
+            header_line_start = f"{header_start} linestart"
+            header_line_end = f"{header_start} lineend"
+            if label == "BAD":
+                text.tag_add("match_bad", header_line_start, header_line_end)
+            else:
+                text.tag_add("match_good", header_line_start, header_line_end)
 
             for key in DISPLAY_FIELDS:
                 if key not in match:
@@ -352,10 +391,12 @@ def build_report(path: Path) -> str:
 def _build_report_from_progress(path: Path, progress: dict[str, Any], *, colorize: bool = False) -> str:
     matches: list[dict[str, Any]] = [m for m in progress.get("matches", []) if isinstance(m, dict)]
     stats_rows, trait_rows = _build_summary(progress)
+    trait_classification_rows = _build_trait_classification_rows(progress)
     progress_rows = _build_progress_rows(progress, len(matches))
     return "\n\n".join(
         [
             f"Файл: {path}",
+            _trait_classification_table(trait_classification_rows),
             _table(progress_rows, "Поля progress JSON"),
             _table(stats_rows, "Краткая статистика"),
             _table(trait_rows, "Топ-5 trait"),
