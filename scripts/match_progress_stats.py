@@ -19,23 +19,9 @@ DISPLAY_FIELDS = [
     "pubmed_articles",
 ]
 
-FIELD_LABEL_MARKERS: dict[str, str] = {
-    "rsid": "🔵",
-    "user_genotype_plus": "🟣",
-    "user_genotype_for_dump": "🟪",
-    "orientation": "🟩",
-    "classification": "🟠",
-    "risk_allele": "🔴",
-    "title_interpretation": "🟨",
-    "trait": "🟢",
-    "pubmed_articles": "🟦",
-}
-
 ANSI_RESET = "\033[0m"
 ANSI_MATCH_BAD = "\033[1;31m"
 ANSI_MATCH_GOOD = "\033[1;32m"
-ANSI_RISK_ALLELE = "\033[1;91m"
-ANSI_USER_GENOTYPE_FOR_DUMP = "\033[1;35m"
 
 
 def _load_progress(path: Path) -> dict[str, Any]:
@@ -173,8 +159,7 @@ def _detailed_match_info(matches: list[dict[str, Any]]) -> str:
         lines.append(f"\n[{idx}] {_match_label(match)}")
         for key in DISPLAY_FIELDS:
             if key in match:
-                marker = FIELD_LABEL_MARKERS.get(key, "•")
-                lines.append(f"{marker} {key}: {_stringify_for_table(match.get(key))}")
+                lines.append(f"{key}: {_stringify_for_table(match.get(key))}")
 
     return "\n".join(lines)
 
@@ -186,18 +171,6 @@ def _default_report_path(source_path: Path) -> Path:
 def _colorize_report(report: str) -> str:
     colorized = re.sub(r"^(\[\d+\]\s+)BAD$", rf"\1{ANSI_MATCH_BAD}BAD{ANSI_RESET}", report, flags=re.MULTILINE)
     colorized = re.sub(r"^(\[\d+\]\s+)GOOD$", rf"\1{ANSI_MATCH_GOOD}GOOD{ANSI_RESET}", colorized, flags=re.MULTILINE)
-    colorized = re.sub(
-        r"^(.*risk_allele:\s*)(.+)$",
-        rf"\1{ANSI_RISK_ALLELE}\2{ANSI_RESET}",
-        colorized,
-        flags=re.MULTILINE,
-    )
-    colorized = re.sub(
-        r"^(.*user_genotype_for_dump:\s*)(.+)$",
-        rf"\1{ANSI_USER_GENOTYPE_FOR_DUMP}\2{ANSI_RESET}",
-        colorized,
-        flags=re.MULTILINE,
-    )
     return colorized
 
 
@@ -255,8 +228,6 @@ def _launch_gui(path: Path, report: str, stats_rows: list[tuple[str, str]], trai
     text = tk.Text(report_frame, wrap="word", font=("Consolas", 10))
     text.tag_configure("match_bad", foreground="#b91c1c", font=("Consolas", 10, "bold"))
     text.tag_configure("match_good", foreground="#166534", font=("Consolas", 10, "bold"))
-    text.tag_configure("risk_allele", foreground="#dc2626", font=("Consolas", 10, "bold"))
-    text.tag_configure("user_genotype_for_dump", foreground="#7e22ce", font=("Consolas", 10, "bold"))
 
     text.insert("1.0", report)
     start = "1.0"
@@ -274,24 +245,6 @@ def _launch_gui(path: Path, report: str, stats_rows: list[tuple[str, str]], trai
             break
         text.tag_add("match_good", f"{good_idx} linestart", f"{good_idx} lineend")
         start = f"{good_idx} lineend"
-
-    start = "1.0"
-    while True:
-        risk_idx = text.search(" risk_allele:", start, stopindex="end")
-        if not risk_idx:
-            break
-        text.tag_add("risk_allele", f"{risk_idx} linestart", f"{risk_idx} lineend")
-        start = f"{risk_idx} lineend"
-
-    start = "1.0"
-    while True:
-        genotype_idx = text.search(" user_genotype_for_dump:", start, stopindex="end")
-        if not genotype_idx:
-            break
-        value_start = text.index(f"{genotype_idx}+25c")
-        line_end = text.index(f"{genotype_idx} lineend")
-        text.tag_add("user_genotype_for_dump", value_start, line_end)
-        start = line_end
 
     text.configure(state="disabled")
     text.pack(side="left", fill="both", expand=True)
@@ -366,7 +319,7 @@ def main() -> None:
     stats_rows, trait_rows = _build_summary(progress)
     report = build_report(target)
     colorized_report = _colorize_report(report)
-    report_path = write_report(target, colorized_report, Path(args.report_out) if args.report_out else None)
+    report_path = write_report(target, report, Path(args.report_out) if args.report_out else None)
 
     print(colorized_report)
     print(f"\nОтчет сохранен: {report_path}")
