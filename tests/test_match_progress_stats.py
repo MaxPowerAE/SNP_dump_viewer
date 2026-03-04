@@ -1,6 +1,8 @@
 from pathlib import Path
 
 from scripts.match_progress_stats import (
+    _format_grouped_match_summary,
+    _grouped_match_summaries,
     _build_trait_classification_rows,
     _detailed_match_info,
     _find_risk_allele_positions,
@@ -61,6 +63,7 @@ def test_build_report_contains_compact_tables(tmp_path: Path) -> None:
     assert "2 (50.0%)" in report
     assert "С risk-аллелем" in report
     assert "Топ-5 trait" in report
+    assert "Сводка по типам болезней/черт" in report
     assert "Cardio" in report
     assert "Sleep" in report
     assert "Детализация совпадений" in report
@@ -231,3 +234,42 @@ def test_find_risk_allele_positions_marks_all_occurrences() -> None:
     assert _find_risk_allele_positions("AAGT", "A") == [0, 1]
     assert _find_risk_allele_positions("cc", "C") == [0, 1]
     assert _find_risk_allele_positions("GG", "A") == []
+
+
+def test_grouped_match_summaries_group_by_disease_type_keywords() -> None:
+    matches = [
+        {"trait": "Cancer risk", "user_genotype_for_dump": "AA", "risk_allele": "A", "classification": "bad"},
+        {"trait": "Height", "user_genotype_for_dump": "CT", "risk_allele": "C", "classification": "good"},
+        {"trait": "Height", "user_genotype_for_dump": "TT", "risk_allele": "A", "classification": "neutral"},
+    ]
+
+    grouped = _grouped_match_summaries(matches)
+
+    assert grouped[0]["group"] == "Рост / телосложение"
+    assert grouped[0]["stats"]["Всего совпадений"] == "2"
+    assert grouped[1]["group"] == "Онкология / рак"
+
+
+def test_format_grouped_match_summary_contains_required_fields() -> None:
+    text = _format_grouped_match_summary(
+        [
+            {
+                "trait": "Cancer",
+                "rsid": "rs123",
+                "user_genotype_plus": "AG",
+                "user_genotype_for_dump": "AG",
+                "orientation": "plus",
+                "classification": "bad",
+                "risk_allele": "A",
+            }
+        ]
+    )
+
+    assert "Сводка по типам болезней/черт" in text
+    assert "Сводная статистика группы" in text
+    assert "rsid" in text
+    assert "user_genotype_plus" in text
+    assert "user_genotype_for_dump" in text
+    assert "orientation" in text
+    assert "classification" in text
+    assert "risk_allele" in text
