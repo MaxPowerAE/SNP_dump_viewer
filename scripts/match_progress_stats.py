@@ -19,6 +19,15 @@ DISPLAY_FIELDS = [
     "pubmed_articles",
 ]
 
+GROUP_SUMMARY_FIELDS = [
+    "rsid",
+    "user_genotype_plus",
+    "user_genotype_for_dump",
+    "orientation",
+    "classification",
+    "risk_allele",
+]
+
 ANSI_RESET = "\033[0m"
 ANSI_MATCH_BAD = "\033[1;31m"
 ANSI_MATCH_GOOD = "\033[1;32m"
@@ -236,6 +245,92 @@ def _trait_classification_table(rows: list[tuple[str, str, str]]) -> str:
     return "\n".join(["\nСводка по trait (GOOD/BAD)", line, header, line, *body, line])
 
 
+def _trait_group_key(match: dict[str, Any]) -> str:
+    raw = " ".join(
+        [
+            _normalize_trait(match.get("trait", "")),
+            _normalize_trait(match.get("title_interpretation", "")),
+        ]
+    ).lower()
+
+    keyword_groups = [
+        ("Онкология / рак", ["рак", "cancer", "tumor", "carcin", "oncolog"]),
+        ("Рост / телосложение", ["рост", "height", "bmi", "weight", "body mass"]),
+        ("Сердечно-сосудистые", ["серд", "давлен", "cardio", "heart", "stroke", "hypertension"]),
+        ("Психика / поведение", ["псих", "mood", "anxiety", "depress", "focus", "behavior", "повед"]),
+        ("Сон / циркадные", ["sleep", "сон", "circadian", "insomnia"]),
+        ("Метаболизм / питание", ["метаб", "metab", "glucose", "diabet", "insulin", "cholesterol", "lipid"]),
+    ]
+
+    for group_name, keywords in keyword_groups:
+        if any(keyword in raw for keyword in keywords):
+            return group_name
+
+    trait = _normalize_trait(match.get("trait", ""))
+    return trait or "Прочие / не указано"
+
+
+def _grouped_match_summaries(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for match in matches:
+        grouped.setdefault(_trait_group_key(match), []).append(match)
+
+    rows: list[dict[str, Any]] = []
+    for group, group_matches in grouped.items():
+        total = len(group_matches)
+        bad = sum(1 for match in group_matches if _match_label(match) == "BAD")
+        good = sum(1 for match in group_matches if _match_label(match) == "GOOD")
+        neutral = sum(1 for match in group_matches if str(match.get("classification", "")).strip().lower() == "neutral")
+        risk = sum(1 for match in group_matches if _has_risk_allele_match(match))
+        rows.append(
+            {
+                "group": group,
+                "matches": group_matches,
+                "stats": {
+                    "Всего совпадений": str(total),
+                    "BAD": f"{bad} ({_safe_percent(bad, total)})",
+                    "GOOD": f"{good} ({_safe_percent(good, total)})",
+                    "Neutral": f"{neutral} ({_safe_percent(neutral, total)})",
+                    "С risk-аллелем": f"{risk} ({_safe_percent(risk, total)})",
+                },
+            }
+        )
+
+    return sorted(rows, key=lambda item: (-int(item["stats"]["Всего совпадений"]), item["group"].lower()))
+
+
+def _format_grouped_match_summary(matches: list[dict[str, Any]]) -> str:
+    grouped = _grouped_match_summaries(matches)
+    if not grouped:
+        return "Сводка по типам болезней/черт\n\nСовпадения отсутствуют"
+
+    lines = ["Сводка по типам болезней/черт"]
+    for bucket in grouped:
+        group_matches = bucket["matches"]
+        stats = bucket["stats"]
+        lines.append(f"\n# {bucket['group']}")
+        lines.append(_table(list(stats.items()), "Сводная статистика группы"))
+
+        table_rows = []
+        for match in group_matches:
+            row = tuple(_stringify_for_table(match.get(field)) for field in GROUP_SUMMARY_FIELDS)
+            table_rows.append(row)
+
+        col_widths = [
+            max(len(field), *(len(row[idx]) for row in table_rows)) if table_rows else len(field)
+            for idx, field in enumerate(GROUP_SUMMARY_FIELDS)
+        ]
+        line = "+" + "+".join("-" * (width + 2) for width in col_widths) + "+"
+        header = "| " + " | ".join(f"{name:<{col_widths[idx]}}" for idx, name in enumerate(GROUP_SUMMARY_FIELDS)) + " |"
+        body = [
+            "| " + " | ".join(f"{row[idx]:<{col_widths[idx]}}" for idx in range(len(GROUP_SUMMARY_FIELDS))) + " |"
+            for row in table_rows
+        ]
+        lines.extend(["Совпадения в группе", line, header, line, *body, line])
+
+    return "\n".join(lines)
+
+
 def _detailed_match_info(matches: list[dict[str, Any]], *, colorize: bool = False) -> str:
     if not matches:
         return "\nДетализация совпадений\nСовпадения отсутствуют"
@@ -400,8 +495,11 @@ def _launch_gui(
     scrollbar.pack(side="right", fill="y")
     text.configure(yscrollcommand=scrollbar.set)
 
-    trait_panel = ttk.LabelFrame(report_row, text="Сводка по trait", padding=8)
-    trait_panel.pack(side="right", fill="y")
+    side_panel = ttk.Notebook(report_row)
+    side_panel.pack(side="right", fill="both")
+
+    trait_panel = ttk.Frame(side_panel, padding=8)
+    side_panel.add(trait_panel, text="Сводка по trait")
     trait_text = tk.Text(trait_panel, width=60, wrap="none", font=("Consolas", 10), state="normal")
     trait_text.tag_configure("trait_good", foreground="#166534", font=("Consolas", 10, "bold"))
     trait_text.tag_configure("trait_bad", foreground="#b91c1c", font=("Consolas", 10, "bold"))
@@ -432,6 +530,16 @@ def _launch_gui(
     trait_scrollbar = ttk.Scrollbar(trait_panel, orient="vertical", command=trait_text.yview)
     trait_scrollbar.pack(side="right", fill="y")
     trait_text.configure(yscrollcommand=trait_scrollbar.set)
+
+    grouped_panel = ttk.Frame(side_panel, padding=8)
+    side_panel.add(grouped_panel, text="Группы болезней/черт")
+    grouped_text = tk.Text(grouped_panel, width=100, wrap="none", font=("Consolas", 10), state="normal")
+    grouped_text.insert("1.0", _format_grouped_match_summary(matches))
+    grouped_text.configure(state="disabled")
+    grouped_text.pack(side="left", fill="both", expand=True)
+    grouped_scrollbar = ttk.Scrollbar(grouped_panel, orient="vertical", command=grouped_text.yview)
+    grouped_scrollbar.pack(side="right", fill="y")
+    grouped_text.configure(yscrollcommand=grouped_scrollbar.set)
 
     root.mainloop()
 
@@ -467,6 +575,7 @@ def _build_report_from_progress(path: Path, progress: dict[str, Any], *, coloriz
             _table(progress_rows, "Поля progress JSON"),
             _table(stats_rows, "Краткая статистика"),
             _table(trait_rows, "Топ-5 trait"),
+            _format_grouped_match_summary(matches),
             _detailed_match_info(matches, colorize=colorize),
         ]
     )
